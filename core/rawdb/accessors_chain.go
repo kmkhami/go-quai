@@ -328,9 +328,9 @@ func ReadHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValu
 }
 
 // ReadExternalHeaderRLP retrieves a block header in its raw RLP database encoding.
-func ReadExternalHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64, context uint64) rlp.RawValue {
+func ReadExternalHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64, location []byte) rlp.RawValue {
 	// look up the data in leveldb.
-	data, _ := db.Get(extHeaderKey(number, context, hash))
+	data, _ := db.Get(extHeaderKey(number, location, hash))
 	if len(data) > 0 {
 		return data
 	}
@@ -363,8 +363,8 @@ func ReadHeader(db ethdb.Reader, hash common.Hash, number uint64) *types.Header 
 }
 
 // ReadExternalHeader retrieves the block header corresponding to the hash.
-func ReadExternalHeader(db ethdb.Reader, hash common.Hash, number uint64, context uint64) *types.Header {
-	data := ReadExternalHeaderRLP(db, hash, number, context)
+func ReadExternalHeader(db ethdb.Reader, hash common.Hash, number uint64, location []byte) *types.Header {
+	data := ReadExternalHeaderRLP(db, hash, number, location)
 	if len(data) == 0 {
 		return nil
 	}
@@ -399,7 +399,7 @@ func WriteHeader(db ethdb.KeyValueWriter, header *types.Header) {
 
 // WriteExternalHeader stores a block header into the database and also stores the hash-
 // to-number mapping.
-func WriteExternalHeader(db ethdb.KeyValueWriter, header *types.Header, context uint64) {
+func WriteExternalHeader(db ethdb.KeyValueWriter, header *types.Header, context uint64, location []byte) {
 	var (
 		hash   = header.Hash()
 		number = header.Number[context].Uint64()
@@ -410,7 +410,7 @@ func WriteExternalHeader(db ethdb.KeyValueWriter, header *types.Header, context 
 	if err != nil {
 		log.Crit("Failed to RLP encode header", "err", err)
 	}
-	key := extHeaderKey(number, context, hash)
+	key := extHeaderKey(number, location, hash)
 	if err := db.Put(key, data); err != nil {
 		log.Crit("Failed to store header", "err", err)
 	}
@@ -464,9 +464,9 @@ func ReadBodyRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue 
 }
 
 // ReadExternalBodyRLP retrieves the block body (transactions and uncles) in RLP encoding.
-func ReadExternalBodyRLP(db ethdb.Reader, hash common.Hash, number uint64, context uint64) rlp.RawValue {
+func ReadExternalBodyRLP(db ethdb.Reader, hash common.Hash, number uint64, context uint64, location []byte) rlp.RawValue {
 	// Then try to look up the data in leveldb.
-	data, _ := db.Get(extBlockBodyKey(number, context, hash))
+	data, _ := db.Get(extBlockBodyKey(number, context, location, hash))
 	if len(data) > 0 {
 		return data
 	}
@@ -500,8 +500,8 @@ func WriteBodyRLP(db ethdb.KeyValueWriter, hash common.Hash, number uint64, rlp 
 }
 
 // WriteBodyRLP stores an RLP encoded block body into the database.
-func WriteExternalBodyRLP(db ethdb.KeyValueWriter, hash common.Hash, number uint64, context uint64, rlp rlp.RawValue) {
-	if err := db.Put(extBlockBodyKey(number, context, hash), rlp); err != nil {
+func WriteExternalBodyRLP(db ethdb.KeyValueWriter, hash common.Hash, number uint64, context uint64, location []byte, rlp rlp.RawValue) {
+	if err := db.Put(extBlockBodyKey(number, context, location, hash), rlp); err != nil {
 		log.Crit("Failed to store block body", "err", err)
 	}
 }
@@ -541,8 +541,8 @@ func WriteBody(db ethdb.KeyValueWriter, hash common.Hash, number uint64, body *t
 }
 
 // ReadExternalBody retrieves the block body corresponding to the hash.
-func ReadExternalBody(db ethdb.Reader, hash common.Hash, number uint64, context uint64) *types.ExternalBody {
-	data := ReadExternalBodyRLP(db, hash, number, context)
+func ReadExternalBody(db ethdb.Reader, hash common.Hash, number uint64, context uint64, location []byte) *types.ExternalBody {
+	data := ReadExternalBodyRLP(db, hash, number, context, location)
 	if len(data) == 0 {
 		return nil
 	}
@@ -555,12 +555,12 @@ func ReadExternalBody(db ethdb.Reader, hash common.Hash, number uint64, context 
 }
 
 // WriteExtBody stores an external block body into the database.
-func WriteExternalBody(db ethdb.KeyValueWriter, hash common.Hash, number uint64, context uint64, body *types.ExternalBody) {
+func WriteExternalBody(db ethdb.KeyValueWriter, hash common.Hash, number uint64, context uint64, location []byte, body *types.ExternalBody) {
 	data, err := rlp.EncodeToBytes(body)
 	if err != nil {
 		log.Crit("Failed to RLP encode body", "err", err)
 	}
-	WriteExternalBodyRLP(db, hash, number, context, data)
+	WriteExternalBodyRLP(db, hash, number, context, location, data)
 }
 
 // DeleteBody removes all block body data associated with a hash.
@@ -854,12 +854,12 @@ func WriteBlock(db ethdb.KeyValueWriter, block *types.Block) {
 // ReadExternalBlock retrieves an entire external block corresponding to the hash, assembling it
 // back from the stored header and body. If either the header or body could not
 // be retrieved nil is returned.
-func ReadExternalBlock(db ethdb.Reader, hash common.Hash, number uint64, context uint64) *types.ExternalBlock {
-	header := ReadExternalHeader(db, hash, number, context)
+func ReadExternalBlock(db ethdb.Reader, hash common.Hash, number uint64, context uint64, location []byte) *types.ExternalBlock {
+	header := ReadExternalHeader(db, hash, number, location)
 	if header == nil {
 		return nil
 	}
-	body := ReadExternalBody(db, hash, number, context)
+	body := ReadExternalBody(db, hash, number, context, location)
 	if body == nil {
 		return nil
 	}
@@ -869,8 +869,8 @@ func ReadExternalBlock(db ethdb.Reader, hash common.Hash, number uint64, context
 // WriteBlock serializes a block into the database, header and body separately.
 func WriteExternalBlock(db ethdb.KeyValueWriter, block *types.ExternalBlock) {
 	context := block.Context().Uint64()
-	WriteExternalBody(db, block.Hash(), block.Header().Number[context].Uint64(), context, block.Body())
-	WriteExternalHeader(db, block.Header(), context)
+	WriteExternalBody(db, block.Hash(), block.Header().Number[context].Uint64(), context, block.Header().Location, block.Body())
+	WriteExternalHeader(db, block.Header(), context, block.Header().Location)
 }
 
 // WriteAncientBlock writes entire block data into ancient store and returns the total written size.
