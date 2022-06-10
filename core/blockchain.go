@@ -19,10 +19,12 @@ package core
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math/big"
+	"net/http"
 	"runtime"
 	"sort"
 	"sync"
@@ -2808,7 +2810,12 @@ func (bc *BlockChain) GetHeaderByHash(hash common.Hash) *types.Header {
 	return bc.hc.GetHeaderByHash(hash)
 }
 
-func (bc *BlockChain) GetExternalBlock(hash common.Hash, number uint64, context uint64) (*types.ExternalBlock, error) {
+type externalBlockAndReceipts struct {
+	block    *types.Block
+	receipts *types.ReceiptBlock
+}
+
+func (bc *BlockChain) GetExternalBlock(hash common.Hash, number uint64, location []byte, context uint64) (*types.ExternalBlock, error) {
 	// Lookup block in externalBlocks cache
 	key := types.ExtBlockCacheKey(number, context, hash)
 
@@ -2819,6 +2826,29 @@ func (bc *BlockChain) GetExternalBlock(hash common.Hash, number uint64, context 
 	}
 	block := rawdb.ReadExternalBlock(bc.db, hash, number, context)
 	if block == nil {
+
+		var missingExternalBlock MissingExternalBlock
+		missingExternalBlock = MissingExternalBlock{Hash: hash, Location: location, Context: int(context)}
+		// ask the manager for the external block
+		marshalMissingExternalBlock, err := json.Marshal(missingExternalBlock)
+		if err != nil {
+			return &types.ExternalBlock{}, errors.New("failed to marshal external block and not found")
+		}
+
+		responseBody := bytes.NewBuffer(marshalMissingExternalBlock)
+		resp, err := http.Post("http://localhost:9000/", "application/json", responseBody)
+		if err != nil {
+			log.Warn("An Error Occured %v", err)
+		}
+		defer resp.Body.Close()
+
+		var extBlockAndReceipt externalBlockAndReceipts
+		if err := json.NewDecoder(resp.Body).Decode(&extBlockAndReceipt); err != nil {
+			log.Warn("ooopsss! an error occurred, please try again")
+		}
+
+		fmt.Println(extBlockAndReceipt)
+
 		return &types.ExternalBlock{}, errors.New("error finding external block by context and hash")
 	}
 
@@ -3291,7 +3321,7 @@ func (bc *BlockChain) AggregateTotalDifficulty(context int, header *types.Header
 		}
 
 		// Retrieve the previous header as an external block.
-		prevBlock, err := bc.GetExternalBlock(header.ParentHash[currentLowestContext], header.Number[currentLowestContext].Uint64()-1, uint64(currentLowestContext))
+		prevBlock, err := bc.GetExternalBlock(header.ParentHash[currentLowestContext], header.Number[currentLowestContext].Uint64()-1, header.Location, uint64(currentLowestContext))
 		if err != nil {
 			return currentTotalDifficulty, currentLowestContext, fmt.Errorf("error finding previous external block")
 		}

@@ -46,3 +46,9 @@ type ChainSideEvent struct {
 }
 
 type ChainHeadEvent struct{ Block *types.Block }
+
+type MissingExternalBlock struct {
+	Hash     common.Hash
+	Location []byte
+	Context  int
+}
