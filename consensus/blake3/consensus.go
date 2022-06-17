@@ -703,6 +703,85 @@ func (blake3 *Blake3) GetLinkExternalBlocks(chain consensus.ChainHeaderReader, h
 	return externalBlocks, nil
 }
 
+// PreviousCoincidentOnPath searches the path for a block of specified order in the specified slice
+//     *slice - The zone location which defines the slice in which we are validating
+//     *order - The order of the conincidence that is desired
+//     *path - Search among ancestors of this path in the specified slice
+func (blake3 *Blake3) PreviousCoincidentOnPath(chain consensus.ChainHeaderReader, header *types.Header, slice []byte, order, path int) (common.Hash, error) {
+
+	if err := chain.CheckContextAndOrderRange(path); err != nil {
+		return common.Hash{}, err
+	}
+	if err := chain.CheckContextAndOrderRange(order); err != nil {
+		return common.Hash{}, err
+	}
+	if err := chain.CheckLocationRange(slice); err != nil {
+		return common.Hash{}, err
+	}
+
+	// Check for non-allowed input combinations
+	// Table for the expected output of Hashes from PreviousCoincidentOnPath for various combinations of given order(o) and path(p)
+	// -------------------
+	// |o\p| 0 | 1    | 2 |
+	// | 0 |PPB|PPB   |PPB|
+	// | 1 | X |PB/PPB|PDB|
+	// | 2 | X |  X   |PB |
+	// --------------------
+	// PB  = Previous Block
+	// PDB = Previous Dominant Block
+	// PPB = Previous Prime Block
+	// X   = Not Allowed
+	if order > path {
+		return common.Hash{}, errors.New("tracing along a dominant chain for a subordinate order block is non-sensical")
+	}
+
+	difficultyOrder, err := blake3.GetDifficultyOrder(header)
+	if err != nil {
+		return common.Hash{}, err
+	}
+
+	if difficultyOrder > path {
+		return common.Hash{}, errors.New("provided header does not directly link to requested path")
+	}
+
+	for {
+		// If block header is Genesis return it as coincident
+		if header.Number[path].Cmp(big.NewInt(0)) <= 0 {
+			return header.Hash(), nil
+		}
+
+		if path == types.QuaiNetworkContext {
+
+			// Get previous header on local chain by hash
+			prevHeader := chain.GetHeaderByHash(header.ParentHash[path])
+
+			// Increment previous header
+			header = prevHeader
+		} else {
+
+			// Get previous header on external chain by hash
+			prevExtBlock, err := chain.GetExternalBlock(header.ParentHash[path], header.Number[path].Uint64()-1, uint64(path))
+			if err != nil {
+				return common.Hash{}, err
+			}
+
+			// Increment previous header
+			header = prevExtBlock.Header()
+		}
+
+		// Find the order of the header
+		difficultyOrder, err := blake3.GetDifficultyOrder(header)
+		if err != nil {
+			return common.Hash{}, err
+		}
+
+		// If we have reached a coincident block of desired order in our desired slice
+		if bytes.Equal(header.Location, slice) && difficultyOrder <= order {
+			return header.Hash(), nil
+		}
+	}
+}
+
 // TraceBranches utilizes a passed in header for initializing a trace of all external blocks.
 // The function will sue PrimeTraceBranch and RegionTraceBranch for the two different types of traces that need to occur.
 // Depending on the difficultyContext, originalContext, and originalLocation the trace will know when and where to stop.

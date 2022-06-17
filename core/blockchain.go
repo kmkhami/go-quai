@@ -3222,6 +3222,54 @@ func (bc *BlockChain) CheckExternalBlockLink(externalBlocks []*types.ExternalBlo
 	return nil
 }
 
+// The purpose of the Previous Coincident Reference Check (PCRC) is to establish
+// that we have linked untwisted chains prior to checking HLCR & applying external state transfers.
+func (bc *BlockChain) PCRC(block *types.Block) ([]common.Hash, error) {
+	slice := block.Header().Location
+
+	// Region twist check
+	// RTZ -- Region coincident along zone path
+	// RTR -- Region coincident along region path
+	RTZ, err := bc.Engine().PreviousCoincidentOnPath(bc, block.Header(), slice, params.REGION, params.ZONE)
+	if err != nil {
+		return []common.Hash{}, err
+	}
+
+	RTR, err := bc.Engine().PreviousCoincidentOnPath(bc, block.Header(), slice, params.REGION, params.REGION)
+	if err != nil {
+		return []common.Hash{}, err
+	}
+
+	if RTZ != RTR {
+		return []common.Hash{}, errors.New("there exists a region twist")
+	}
+
+	// Prime twist check
+	// PTZ -- Prime coincident along zone path
+	// PTR -- Prime coincident along region path
+	// PTP -- Prime coincident along prime path
+	PTZ, err := bc.Engine().PreviousCoincidentOnPath(bc, block.Header(), slice, params.PRIME, params.ZONE)
+	if err != nil {
+		return []common.Hash{}, err
+	}
+
+	PTR, err := bc.Engine().PreviousCoincidentOnPath(bc, block.Header(), slice, params.PRIME, params.REGION)
+	if err != nil {
+		return []common.Hash{}, err
+	}
+
+	PTP, err := bc.Engine().PreviousCoincidentOnPath(bc, block.Header(), slice, params.PRIME, params.PRIME)
+	if err != nil {
+		return []common.Hash{}, err
+	}
+
+	if PTZ != PTR || PTR != PTP || PTP != PTZ {
+		return []common.Hash{}, errors.New("there exists a prime twist")
+	}
+
+	return []common.Hash{PTP, RTR, block.Header().Hash()}, nil
+}
+
 // AggregateNetworkDifficulty aggregates the total difficulty from the previous stop Hash in the dominant chains only
 func (bc *BlockChain) AggregateTotalDifficulty(context int, header *types.Header) (*big.Int, int, error) {
 
