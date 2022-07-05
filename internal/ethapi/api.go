@@ -1273,6 +1273,7 @@ func RPCMarshalEthBlock(block *types.Block, inclTx bool, fullTx bool) (map[strin
 
 // RPCMarshalReceipt converts the given receipt to the RPC output.
 func RPCMarshalReceipt(receipt *types.Receipt) (map[string]interface{}, error) {
+	fmt.Println("Error in RPCMarshalReceipt", receipt.BlockNumber, receipt)
 	fields := map[string]interface{}{
 		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
 		"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),

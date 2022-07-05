@@ -710,6 +710,9 @@ func (s *PublicBlockChainQuaiAPI) GetExternalBlockTraceSet(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
+	if extBlock == nil {
+		return nil, fmt.Errorf("getexternalblocktraceset: external block is nil")
+	}
 	block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
 
 	return RPCMarshalExternalBlock(block, extBlock.Receipts(), extBlock.Context())
