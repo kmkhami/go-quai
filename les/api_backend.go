@@ -386,3 +386,7 @@ func (b *LesApiBackend) StateAtTransaction(ctx context.Context, block *types.Blo
 func (b *LesApiBackend) CalculateBaseFee(header *types.Header) *big.Int {
 	return b.CalculateBaseFee(header)
 }
+
+func (b *LesApiBackend) GetBlockStatus(header *types.Header) core.WriteStatus {
+	return core.NonStatTy
+}

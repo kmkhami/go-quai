@@ -136,6 +136,10 @@ func (b *EthAPIBackend) PCRC(header *types.Header, order int) (common.Hash, erro
 	return b.eth.blockchain.PCRC(header, order)
 }
 
+func (b *EthAPIBackend) GetBlockStatus(header *types.Header) core.WriteStatus {
+	return b.eth.blockchain.GetBlockStatus(header)
+}
+
 func (b *EthAPIBackend) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
 	return b.eth.blockchain.GetBlockByHash(hash), nil
 }

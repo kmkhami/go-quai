@@ -519,6 +519,12 @@ func RPCMarshalExternalBlockTraceSet(hash common.Hash, context int) (map[string]
 	return fields, nil
 }
 
+// RPCMarshalHash convert the hash into a the correct interface.
+func RPCMarshalHash(hash common.Hash) (map[string]interface{}, error) {
+	fields := map[string]interface{}{"Hash": hash}
+	return fields, nil
+}
+
 // rpcMarshalHeader uses the generalized output filler, then adds the total difficulty field, which requires
 // a `PublicBlockchainQuaiAPI`.
 func (s *PublicBlockChainQuaiAPI) rpcMarshalHeader(ctx context.Context, header *types.Header) map[string]interface{} {
@@ -701,4 +707,18 @@ func (s *PublicBlockChainQuaiAPI) CheckPCRC(ctx context.Context, raw json.RawMes
 		return common.Hash{}, err
 	}
 	return s.b.PCRC(head, 0)
+}
+
+// GetBlockStatus returns the status of the block for a given header
+func (s *PublicBlockChainQuaiAPI) GetBlockStatus(ctx context.Context, raw json.RawMessage) core.WriteStatus {
+	var head *types.Header
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return core.NonStatTy
+	}
+
+	if head == nil {
+		return core.NonStatTy
+	}
+
+	return s.b.GetBlockStatus(head)
 }

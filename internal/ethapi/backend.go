@@ -75,6 +75,7 @@ type Backend interface {
 	AddExternalBlock(block *types.ExternalBlock) error
 	GetExternalBlockByHashAndContext(hash common.Hash, context int) (*types.ExternalBlock, error)
 	PCRC(header *types.Header, order int) (common.Hash, error)
+	GetBlockStatus(header *types.Header) core.WriteStatus
 	EventMux() *event.TypeMux
 	CalculateBaseFee(header *types.Header) *big.Int
 	GetUncleFromWorker(uncleHash common.Hash) (*types.Block, error)
