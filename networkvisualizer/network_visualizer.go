@@ -10,14 +10,16 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
+	"strings"
 
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/ethclient"
-	"github.com/spruce-solutions/go-quai/rlp"
-	"golang.org/x/crypto/sha3"
+	"gopkg.in/urfave/cli.v1"
 )
 
 var (
@@ -48,126 +50,172 @@ var (
 	zone32SubGraph  = "subgraph cluster_Zone32 { label = \"Zone32\" node [color = orangered2]"
 	zone33SubGraph  = "subgraph cluster_Zone33 { label = \"Zone33\" node [color = \"#c55200\"]"
 	uncleSubGraph   = []string{"subgraph cluster_Uncles { label = \"Uncles\""}
+	//Initializing all the chains to be used in the graph for each Region/Zone/Prime
+	zone11Chain  = Chain{zone11, zone11SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	zone12Chain  = Chain{zone12, zone12SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	zone13Chain  = Chain{zone13, zone13SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	region1Chain = Chain{region1, region1SubGraph, []node{}, 1, []Chain{zone11Chain, zone12Chain, zone13Chain}, 0, 0}
+	zone21Chain  = Chain{zone21, zone21SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	zone22Chain  = Chain{zone22, zone22SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	zone23Chain  = Chain{zone23, zone23SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	region2Chain = Chain{region2, region2SubGraph, []node{}, 1, []Chain{zone21Chain, zone22Chain, zone23Chain}, 0, 0}
+	zone31Chain  = Chain{zone31, zone31SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	zone32Chain  = Chain{zone32, zone32SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	zone33Chain  = Chain{zone33, zone33SubGraph, []node{}, 2, []Chain{}, 0, 0}
+	region3Chain = Chain{region3, region3SubGraph, []node{}, 1, []Chain{zone31Chain, zone32Chain, zone33Chain}, 0, 0}
+	primeChain   = Chain{prime, primeSubGraph, []node{}, 0, []Chain{region1Chain, region2Chain, region3Chain}, 0, 0}
+	chains       = []Chain{primeChain, region1Chain, region2Chain, region3Chain, zone11Chain, zone12Chain, zone13Chain, zone21Chain, zone22Chain, zone23Chain, zone31Chain, zone32Chain, zone33Chain}
+	edges        = []string{}
+	ctx          = context.Background()
+	f            *os.File
+
+	//Destination for Flag arguments
+	StartFlag      int
+	RangeFlag      int
+	CompressedFlag = true
+	LiveFlag       = false
+	UnclesFlag     = false
+	SaveFileFlag   = "TestGraph.dot"
+	//Inclusion flag to be implemented
+	//inclusionFlag =
+
 )
 
 type Chain struct {
 	client    *ethclient.Client //Used for retrieving the Block information from the DB
 	subGraph  string            //Used to store initial subgraph formatting for respective chain
 	nodes     []node            //Contains the nodes of each chain
-	edges     []string          //Contains the edges for each chain
 	order     int               //Stores the order of the chain being dealt with
 	subChains []Chain           //Contains each subordinate chain
+	startLoc  int
+	endLoc    int
 }
 
 type node struct {
 	nodehash string
-	number   *big.Int
+	number   int
 }
 
 func main() {
-	//Initializing all the chains to be used in the graph for each Region/Zone/Prime
-	zone11Chain := Chain{zone11, zone11SubGraph, []node{}, []string{}, 2, []Chain{}}
-	zone12Chain := Chain{zone12, zone12SubGraph, []node{}, []string{}, 2, []Chain{}}
-	zone13Chain := Chain{zone13, zone13SubGraph, []node{}, []string{}, 2, []Chain{}}
-	region1Chain := Chain{region1, region1SubGraph, []node{}, []string{}, 1, []Chain{zone11Chain, zone12Chain, zone13Chain}}
-	zone21Chain := Chain{zone21, zone21SubGraph, []node{}, []string{}, 2, []Chain{}}
-	zone22Chain := Chain{zone22, zone22SubGraph, []node{}, []string{}, 2, []Chain{}}
-	zone23Chain := Chain{zone23, zone23SubGraph, []node{}, []string{}, 2, []Chain{}}
-	region2Chain := Chain{region2, region2SubGraph, []node{}, []string{}, 1, []Chain{zone21Chain, zone22Chain, zone23Chain}}
-	zone31Chain := Chain{zone31, zone31SubGraph, []node{}, []string{}, 2, []Chain{}}
-	zone32Chain := Chain{zone32, zone32SubGraph, []node{}, []string{}, 2, []Chain{}}
-	zone33Chain := Chain{zone33, zone33SubGraph, []node{}, []string{}, 2, []Chain{}}
-	region3Chain := Chain{region3, region3SubGraph, []node{}, []string{}, 1, []Chain{zone31Chain, zone32Chain, zone33Chain}}
-	primeChain := Chain{prime, primeSubGraph, []node{}, []string{}, 0, []Chain{region1Chain, region2Chain, region3Chain}}
-	chains := make([]Chain, 0)
-	chains = append(chains, primeChain, region1Chain, region2Chain, region3Chain, zone11Chain, zone12Chain, zone13Chain, zone21Chain, zone22Chain, zone23Chain, zone31Chain, zone32Chain, zone33Chain)
-	//Parameters for the program can be modified here.
-	AssembleGraph(0, 0, chains)
-}
-
-// Hash returns the block hash of the header, which is simply the keccak256 hash of its RLP encoding.
-func rlpHash(x interface{}) (h common.Hash) {
-	hw := sha3.NewLegacyKeccak256()
-	rlp.Encode(hw, x)
-	hw.Sum(h[:0])
-	return h
-}
-
-//Main runner of the tool AssembleGraph takes a chain with initialized ethclients and fills out the other fiels as well as generates the DOT file
-//Start and End indicates the block range you want in the graph
-//If start and end are left 0 AssembleGraph will default to the 100 most recent nodes
-func AssembleGraph(start int, end int, chains []Chain) {
-	f, _ := os.Create("TestGraph.dot")
+	app := cli.NewApp()
+	app.Name = "visualizenetwork"
+	app.Usage = "Generates graphs of Quai Network"
+	app.Action = func(c *cli.Context) error {
+		return nil
+	}
+	//Slice of flags used by CLI, connnect the Destination value to respective flag variable
+	app.Flags = []cli.Flag{
+		cli.IntFlag{
+			Name:        "start",
+			Value:       0,
+			Usage:       "Determines the start block for the graph in terms of block number",
+			Destination: &StartFlag,
+		},
+		cli.IntFlag{
+			Name:        "range",
+			Value:       100,
+			Usage:       "Sets how many blocks to include in the graph(default = 100)",
+			Destination: &RangeFlag,
+		},
+		cli.BoolTFlag{
+			Name:        "compressed",
+			Usage:       "Hides blocks inbetween coincident blocks, aside from those within the specified range(default = true)",
+			Destination: &CompressedFlag,
+		},
+		cli.BoolFlag{
+			Name:        "live",
+			Usage:       "Allows for the graph to update real-time(default = false)",
+			Destination: &LiveFlag,
+		},
+		cli.BoolFlag{
+			Name:        "uncles",
+			Usage:       "Includes uncle blocks in the live version of the graph, only works if live is true(default = false)",
+			Destination: &UnclesFlag,
+		},
+		cli.StringFlag{
+			Name:        "savefile",
+			Value:       "TestGraph.dot",
+			Usage:       "Allows for specification of output file for the graph(default = \"TestGraph.dot\")",
+			Destination: &SaveFileFlag,
+		},
+	}
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err)
+	}
+	flag.Parse()
+	//Opening IO file to write to, WiP for flag options to specify file
+	f, err = os.Create(SaveFileFlag)
+	if err != nil {
+		panic(err)
+	}
 	defer f.Close()
 
-	//Writing the outline for the graph
-	f.WriteString("digraph G {\nfontname=\"Helvetica,Arial,sans-serif\"\nnode [fontname=\"Helvetica,Arial,sans-serif\", shape = rectangle, style = filled] \nedge [fontname=\"Helvetica,Arial,sans-serif\"]")
+	Rflag := RangeFlag
+	Sflag := StartFlag
+	if Sflag == 0 {
+		for i := range chains {
+			blockNum, _ := chains[i].client.BlockNumber(context.Background())
+			chains[i].startLoc = int(blockNum) - Rflag
+			if chains[i].startLoc < 1 {
+				chains[i].startLoc = 1
+			}
+			if chains[i].startLoc > int(blockNum) {
+				chains[i].startLoc = int(blockNum) + 1
+			}
+			chains[i].endLoc = int(blockNum)
+		}
+	} else {
+		for i := range chains {
+			blockNum, _ := chains[i].client.BlockNumber(context.Background())
+			chains[i].endLoc = Sflag + Rflag
+			if chains[i].endLoc > int(blockNum) {
+				chains[i].endLoc = int(blockNum)
+			}
+			chains[i].startLoc = Sflag
+		}
+	}
 
+	AssembleGraph(chains)
+}
+
+func AssembleGraph(chains []Chain) {
 	for i := 0; i < len(chains); i++ {
-		chain := chains[i].client
-		//subGraph := chains[i].subGraph
-		order := chains[i].order
-		//Fetches the number of blocks in the respective chain
-		numBlocks, _ := chain.BlockNumber(context.Background())
-
-		//Sets the default range if start and end parameters are 0. Also checks to see if they are out of bounds
-		if start == 0 && end == 0 {
-			end = int(numBlocks)
-			start = int(numBlocks) - 100
-		}
-		if end > int(numBlocks) {
-			end = int(numBlocks)
-		}
-		if start < 0 {
-			start = 1
-		}
-
-		//Iterates through the blocks in the chain
-		for j := start; j <= end; j++ {
-			blockHeader, err := chain.HeaderByNumber(context.Background(), big.NewInt(int64(j)))
+		for j := chains[i].startLoc; j < chains[i].endLoc; j++ {
+			header, err := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(j)))
 			if err != nil {
-				panic(err)
+				panic("Couldn't find block within specified range")
 			}
-			blockHash := rlpHash(blockHeader)
-			if order == 0 || order == 1 {
-				AddCoincident(chains, blockHash)
-			}
-			if j != start {
-				parentHeader, _ := chain.HeaderByHash(context.Background(), blockHeader.ParentHash[order])
-				parentHash := rlpHash(parentHeader).String()[2:7]
-				bHash := blockHash.String()[2:7]
-				chains[i].AddEdge(true, fmt.Sprintf("%d", chains[i].order)+parentHash, fmt.Sprintf("%d", chains[i].order)+bHash)
+			hHash := header.Hash()
+			chains[i].addNode(hHash, j)
+			if j != chains[i].endLoc {
 
 			}
-			chains[i].AddNode(blockHash, j)
-
 		}
-		start = 0
-		end = 0
 	}
-	writeToDOT(chains, f)
-	f.WriteString("\n}")
+	writeToDOT(chains)
 }
 
-//AddCoincident Goes through Region and Prime chains and connects all blocks found in the network with the same hash
-func AddCoincident(chains []Chain, hash common.Hash) {
-	uncle := true
-	for i := 0; i < len(chains); i++ {
-		_, err := chains[i].client.HeaderByHash(context.Background(), hash)
-		if err == nil {
-			chains[i].AddNode(hash, 0)
-			if chains[i].order < 2 {
-				chains[i].AddEdge(false, fmt.Sprintf("%d", chains[i].order)+hash.String()[2:7], fmt.Sprintf("%d", chains[i].order+1)+hash.String()[2:7])
-				AddCoincident(chains[i].subChains, hash)
-			}
-			uncle = false
-		}
-		if uncle && i == len(chains)-1 {
-			AddUncle(hash, chains[0].order)
-		}
+func (c *Chain) addNode(hash common.Hash, num int) {
+	if !hasNode(c, hash) {
+		c.nodes = append(c.nodes, node{"\n\"" + fmt.Sprint(c.order) + hash.String()[2:10] + "\" [label = \"" + hash.String()[2:10] + "\\n " + fmt.Sprint(num) + "\"]", num})
 	}
 }
 
+func (c *Chain) addEdge(dir bool)
+
+//Returns true if the chain has the node. Otherwise returns false
+func hasNode(c *Chain, hash common.Hash) bool {
+	for _, node := range c.nodes {
+		modHash := hash.String()[2:10]
+		if strings.Contains(node.nodehash, modHash) {
+			return true
+		}
+	}
+	return false
+}
+
+/*
 //Adds a Node to the chain if it doesn't already exist.
 func (c *Chain) AddNode(hash common.Hash, num int) {
 	if !ContainsNode("\n\""+fmt.Sprint(c.order)+hash.String()[2:7]+"\" [label = \""+hash.String()[2:7]+"\"]", c.nodes) {
@@ -181,7 +229,7 @@ func (c *Chain) AddNode(hash common.Hash, num int) {
 			c.nodes = append(c.nodes, tempNode)
 		}
 	}
-}
+}*/
 
 func AddUncle(hash common.Hash, order int) {
 	uncleSubGraph = append(uncleSubGraph, "\n\""+fmt.Sprint(order)+hash.String()[2:7]+"\" [label = \""+hash.String()[2:7]+"\"]")
@@ -190,12 +238,16 @@ func AddUncle(hash common.Hash, order int) {
 //Adds an edge to the chain FROM string1 TO string2. The bool parameter will take away the direction of the edge if it is false.
 func (c *Chain) AddEdge(dir bool, node1 string, node2 string) {
 	if dir {
-		if !Contains("\n\""+node1+"\" -> \""+node2+"\"", c.edges) {
-			c.edges = append(c.edges, "\n\""+node1+"\" -> \""+node2+"\"")
+		if !Contains("\n\""+node1+"\" -> \""+node2+"\"", edges) {
+			if color != "" {
+				edges = append(edges, "\n\""+node1+"\" -> \""+node2+"\" [color = \""+color+"\"]")
+			} else {
+				edges = append(edges, "\n\""+node1+"\" -> \""+node2+"\"")
+			}
 		}
 	} else {
-		if !Contains("\n\""+node1+"\" -> \""+node2+"\" [dir = none]", c.edges) {
-			c.edges = append(c.edges, "\n\""+node1+"\" -> \""+node2+"\" [dir = none]")
+		if !Contains("\n\""+node1+"\" -> \""+node2+"\" [dir = none]", edges) {
+			edges = append(edges, "\n\""+node1+"\" -> \""+node2+"\" [dir = none]")
 		}
 	}
 }
@@ -221,23 +273,42 @@ func Contains(s string, list []string) bool {
 	return false
 }
 
-//Function for writing a DOT file that generates the graph
-func writeToDOT(chains []Chain, file *os.File) {
-	for _, n := range chains {
-		file.WriteString(n.subGraph)
-		for _, s := range n.nodes {
-			file.WriteString(s.nodehash)
+func OrderChains(chains []Chain) []Chain {
+	//Insertion sorting the chains in order for next steps to be executed properly
+	for i := 0; i < len(chains); i++ {
+		for j := 1; j < len(chains[i].nodes); j++ {
+			for k := j; k >= 1 && chains[i].nodes[k].number < chains[i].nodes[k-1].number; k-- {
+				chains[i].nodes[k], chains[i].nodes[k-1] = chains[i].nodes[k-1], chains[i].nodes[k]
+			}
 		}
-		file.WriteString("}\n")
+	}
+	for i := 0; i < len(chains); i++ {
+		for j := 0; j < len(chains[i].nodes)-1; j++ {
+			if i != 0 {
+				chains[i].AddEdge(true, chains[i].nodes[j].nodehash[2:11], chains[i].nodes[j+1].nodehash[2:11], "blue")
+			}
+		}
+	}
+	return chains
+}
+
+//Function for writing a DOT file that generates the graph
+func writeToDOT(chains []Chain) {
+	f.WriteString("digraph G {\nfontname=\"Helvetica,Arial,sans-serif\"\nnode [fontname=\"Helvetica,Arial,sans-serif\", shape = rectangle, style = filled] \nedge [fontname=\"Helvetica,Arial,sans-serif\"]")
+	for _, n := range chains {
+		f.WriteString(n.subGraph)
+		for _, s := range n.nodes {
+			f.WriteString(s.nodehash)
+		}
+		f.WriteString("}\n")
 
 	}
 	for _, n := range uncleSubGraph {
-		file.WriteString(n)
+		f.WriteString(n)
 	}
-	file.WriteString("}\n")
-	for _, n := range chains {
-		for _, s := range n.edges {
-			file.WriteString(s)
-		}
+	f.WriteString("}\n")
+	for _, s := range edges {
+		f.WriteString(s)
 	}
+	f.WriteString("\n}")
 }
