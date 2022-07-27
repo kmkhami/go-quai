@@ -10,7 +10,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"math/big"
@@ -67,18 +66,18 @@ var (
 	chains       = []Chain{primeChain, region1Chain, region2Chain, region3Chain, zone11Chain, zone12Chain, zone13Chain, zone21Chain, zone22Chain, zone23Chain, zone31Chain, zone32Chain, zone33Chain}
 	edges        = []string{}
 	ctx          = context.Background()
+	hashLength   = 10
 	f            *os.File
 
 	//Destination for Flag arguments
-	StartFlag      int
-	RangeFlag      int
-	CompressedFlag = true
-	LiveFlag       = false
-	UnclesFlag     = false
-	SaveFileFlag   = "TestGraph.dot"
-	//Inclusion flag to be implemented
-	//inclusionFlag =
-
+	StartFlag         int
+	RangeFlag         int
+	CompressedFlag    = true
+	LiveFlag          = false
+	UnclesFlag        = false
+	SaveFileFlag      = "TestGraph.dot"
+	tempinclusionFlag = []string{"prime", "c", "p", "h", "c1", "c2", "c3", "p1", "p2", "p3", "h1", "h2", "h3"}
+	InclusionFlag     = cli.StringSlice(tempinclusionFlag)
 )
 
 type Chain struct {
@@ -92,8 +91,9 @@ type Chain struct {
 }
 
 type node struct {
-	nodehash string
-	number   int
+	nodehash   common.Hash
+	nodestring string
+	number     int
 }
 
 func main() {
@@ -138,12 +138,16 @@ func main() {
 			Usage:       "Allows for specification of output file for the graph(default = \"TestGraph.dot\")",
 			Destination: &SaveFileFlag,
 		},
+		cli.StringSliceFlag{
+			Name:  "include, i",
+			Usage: "String slice containing the chains you would like to include in the graph. Default:{prime,c,p,h,c1,c2,c3,p1,p2,p3,h1,h2,h3}(All chains)",
+			Value: &InclusionFlag,
+		},
 	}
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Fatal(err)
 	}
-	flag.Parse()
 	//Opening IO file to write to, WiP for flag options to specify file
 	f, err = os.Create(SaveFileFlag)
 	if err != nil {
@@ -153,6 +157,10 @@ func main() {
 
 	Rflag := RangeFlag
 	Sflag := StartFlag
+	if len(InclusionFlag) != 13 {
+		InclusionFlag = InclusionFlag.Value()[13:]
+	}
+	chains = handleInclusion(chains)
 	if Sflag == 0 {
 		for i := range chains {
 			blockNum, _ := chains[i].client.BlockNumber(context.Background())
@@ -175,102 +183,139 @@ func main() {
 			chains[i].startLoc = Sflag
 		}
 	}
-
 	AssembleGraph(chains)
 }
 
 func AssembleGraph(chains []Chain) {
 	for i := 0; i < len(chains); i++ {
-		for j := chains[i].startLoc; j < chains[i].endLoc; j++ {
+		for j := chains[i].startLoc; j <= chains[i].endLoc; j++ {
 			header, err := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(j)))
 			if err != nil {
-				panic("Couldn't find block within specified range")
+				panic(err)
 			}
 			hHash := header.Hash()
 			chains[i].addNode(hHash, j)
 			if j != chains[i].endLoc {
-
+				nextheader, err := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(j+1)))
+				if err != nil {
+					panic(err)
+				}
+				nhHash := nextheader.Hash()
+				addEdge(true, hHash, nhHash, chains[i].order, "")
+			}
+			if chains[i].order < 2 {
+				addCoincident(hHash, chains)
 			}
 		}
 	}
+	OrderChains(chains)
 	writeToDOT(chains)
+}
+
+func addCoincident(hash common.Hash, c []Chain) {
+	for i := 0; i < len(c); i++ {
+		header, err := c[i].client.HeaderByHash(ctx, hash)
+		tempHash := header.Hash()
+		if err == nil {
+			c[i].addNode(tempHash, int(header.Number[c[i].order].Int64()))
+			if int(header.Number[c[i].order].Int64()) < c[i].startLoc && !CompressedFlag {
+				c[i].startLoc = int(header.Number[c[i].order].Int64())
+			}
+			if int(header.Number[c[i].order].Int64()) > c[i].endLoc && !CompressedFlag {
+				c[i].endLoc = int(header.Number[c[i].order].Int64())
+			}
+			if c[i].order < 2 {
+				addEdge(false, hash, hash, c[i].order, "")
+			}
+			if c[i].order < 1 {
+				addCoincident(hash, c[i].subChains)
+			}
+		}
+	}
 }
 
 func (c *Chain) addNode(hash common.Hash, num int) {
 	if !hasNode(c, hash) {
-		c.nodes = append(c.nodes, node{"\n\"" + fmt.Sprint(c.order) + hash.String()[2:10] + "\" [label = \"" + hash.String()[2:10] + "\\n " + fmt.Sprint(num) + "\"]", num})
+		c.nodes = append(c.nodes, node{hash, "\n\"" + fmt.Sprint(c.order) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
 	}
 }
 
-func (c *Chain) addEdge(dir bool)
+func addEdge(dir bool, node1 common.Hash, node2 common.Hash, order int, color string) {
+	node1Hash := fmt.Sprint(order) + node1.String()[2:hashLength+2]
+	node2Hash := fmt.Sprint(order) + node2.String()[2:hashLength+2]
+	if !dir {
+		node1Hash = fmt.Sprint(order) + node1.String()[2:hashLength+2]
+		node2Hash = fmt.Sprint(order+1) + node1.String()[2:hashLength+2]
+	}
+	if !hasEdge(node1Hash, node2Hash) {
+		if color != "" {
+			edges = append(edges, "\""+node1Hash+"\" -> \""+node2Hash+"\" [color = "+color+"]")
+		} else if dir {
+			edges = append(edges, "\""+node1Hash+"\" -> \""+node2Hash+"\"")
+		} else {
+			edges = append(edges, "\""+node1Hash+"\" -> \""+node2Hash+"\""+" [dir = none]")
+		}
+	}
+}
+
+func hasEdge(node1Hash string, node2Hash string) bool {
+	for _, edge := range edges {
+		if strings.Contains(edge, "\""+node1Hash+"\" -> \""+node2Hash+"\"") {
+			return true
+		}
+	}
+	return false
+}
 
 //Returns true if the chain has the node. Otherwise returns false
 func hasNode(c *Chain, hash common.Hash) bool {
 	for _, node := range c.nodes {
-		modHash := hash.String()[2:10]
-		if strings.Contains(node.nodehash, modHash) {
+		modHash := hash.String()[2 : hashLength+2]
+		if strings.Contains(node.nodestring, modHash) {
 			return true
 		}
 	}
 	return false
 }
 
-/*
-//Adds a Node to the chain if it doesn't already exist.
-func (c *Chain) AddNode(hash common.Hash, num int) {
-	if !ContainsNode("\n\""+fmt.Sprint(c.order)+hash.String()[2:7]+"\" [label = \""+hash.String()[2:7]+"\"]", c.nodes) {
-		tempNode := node{}
-		if num == 0 {
-			blockHeader, _ := c.client.HeaderByHash(context.Background(), hash)
-			tempNode = node{"\n\"" + fmt.Sprint(c.order) + hash.String()[2:7] + "\" [label = \"" + hash.String()[2:7] + "\\n " + blockHeader.Number[c.order].String() + "\"]", blockHeader.Number[c.order]}
-			c.nodes = append(c.nodes, tempNode)
-		} else {
-			tempNode = node{"\n\"" + fmt.Sprint(c.order) + hash.String()[2:7] + "\" [label = \"" + hash.String()[2:7] + "\\n " + fmt.Sprint(num) + "\"]", big.NewInt(int64(num))}
-			c.nodes = append(c.nodes, tempNode)
+func handleInclusion(chains []Chain) []Chain {
+	chainsCopy := []Chain{}
+	for _, val := range InclusionFlag {
+		switch val {
+		case "prime":
+			chainsCopy = append(chainsCopy, primeChain)
+		case "c":
+			chainsCopy = append(chainsCopy, region1Chain)
+		case "p":
+			chainsCopy = append(chainsCopy, region2Chain)
+		case "h":
+			chainsCopy = append(chainsCopy, region3Chain)
+		case "c1":
+			chainsCopy = append(chainsCopy, zone11Chain)
+		case "c2":
+			chainsCopy = append(chainsCopy, zone12Chain)
+		case "c3":
+			chainsCopy = append(chainsCopy, zone13Chain)
+		case "p1":
+			chainsCopy = append(chainsCopy, zone21Chain)
+		case "p2":
+			chainsCopy = append(chainsCopy, zone22Chain)
+		case "p3":
+			chainsCopy = append(chainsCopy, zone23Chain)
+		case "h1":
+			chainsCopy = append(chainsCopy, zone31Chain)
+		case "h2":
+			chainsCopy = append(chainsCopy, zone32Chain)
+		case "h3":
+			chainsCopy = append(chainsCopy, zone33Chain)
 		}
+
 	}
-}*/
+	return chainsCopy
+}
 
 func AddUncle(hash common.Hash, order int) {
-	uncleSubGraph = append(uncleSubGraph, "\n\""+fmt.Sprint(order)+hash.String()[2:7]+"\" [label = \""+hash.String()[2:7]+"\"]")
-}
-
-//Adds an edge to the chain FROM string1 TO string2. The bool parameter will take away the direction of the edge if it is false.
-func (c *Chain) AddEdge(dir bool, node1 string, node2 string) {
-	if dir {
-		if !Contains("\n\""+node1+"\" -> \""+node2+"\"", edges) {
-			if color != "" {
-				edges = append(edges, "\n\""+node1+"\" -> \""+node2+"\" [color = \""+color+"\"]")
-			} else {
-				edges = append(edges, "\n\""+node1+"\" -> \""+node2+"\"")
-			}
-		}
-	} else {
-		if !Contains("\n\""+node1+"\" -> \""+node2+"\" [dir = none]", edges) {
-			edges = append(edges, "\n\""+node1+"\" -> \""+node2+"\" [dir = none]")
-		}
-	}
-}
-
-//Checks to see if a node already exists
-func ContainsNode(s string, list []node) bool {
-	for _, a := range list {
-		modHash := a.nodehash[:25] + "\"]"
-		if modHash == s {
-			return true
-		}
-	}
-	return false
-}
-
-//Checks to see if the list of strings contains the string passed as the first parameter. Used to check if a Node already exists in the the list.
-func Contains(s string, list []string) bool {
-	for _, a := range list {
-		if a == s {
-			return true
-		}
-	}
-	return false
+	uncleSubGraph = append(uncleSubGraph, "\n\""+fmt.Sprint(order)+hash.String()[2:hashLength+2]+"\" [label = \""+hash.String()[2:hashLength+2]+"\"]")
 }
 
 func OrderChains(chains []Chain) []Chain {
@@ -285,7 +330,7 @@ func OrderChains(chains []Chain) []Chain {
 	for i := 0; i < len(chains); i++ {
 		for j := 0; j < len(chains[i].nodes)-1; j++ {
 			if i != 0 {
-				chains[i].AddEdge(true, chains[i].nodes[j].nodehash[2:11], chains[i].nodes[j+1].nodehash[2:11], "blue")
+				addEdge(true, chains[i].nodes[j].nodehash, chains[i].nodes[j+1].nodehash, chains[i].order, "blue")
 			}
 		}
 	}
@@ -298,7 +343,7 @@ func writeToDOT(chains []Chain) {
 	for _, n := range chains {
 		f.WriteString(n.subGraph)
 		for _, s := range n.nodes {
-			f.WriteString(s.nodehash)
+			f.WriteString(s.nodestring)
 		}
 		f.WriteString("}\n")
 
@@ -308,7 +353,7 @@ func writeToDOT(chains []Chain) {
 	}
 	f.WriteString("}\n")
 	for _, s := range edges {
-		f.WriteString(s)
+		f.WriteString(s + "\n")
 	}
 	f.WriteString("\n}")
 }
