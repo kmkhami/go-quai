@@ -10,15 +10,26 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
+	"math/rand"
 	"os"
 	"strings"
+	"sync"
+
+	crand "crypto/rand"
 
 	"github.com/spruce-solutions/go-quai/common"
+	"github.com/spruce-solutions/go-quai/core/types"
 	"github.com/spruce-solutions/go-quai/ethclient"
+	"github.com/spruce-solutions/go-quai/metrics"
+	"github.com/spruce-solutions/go-quai/params"
+	"github.com/spruce-solutions/go-quai/rlp"
 	"gopkg.in/urfave/cli.v1"
+	blake3hash "lukechampine.com/blake3"
 )
 
 var (
@@ -96,6 +107,38 @@ type node struct {
 	number     int
 }
 
+type Config struct {
+	// Number of threads to use when mining.
+	// -1 => mining disabled
+	// 0 => max no. of threads, limited by max CPUs
+	// >0 => exact no. of threads, up to max CPUs
+	MiningThreads int
+
+	// When set, notifications sent by the remote sealer will
+	// be block header JSON objects instead of work package arrays.
+	NotifyFull bool
+
+	// Logger object
+	Log log.Logger `toml:"-"`
+
+	// Fake proof of work for testing
+	Fakepow bool
+}
+
+// Blake3 a consensus engine based on the Blake3 hash function
+type Blake3 struct {
+	config Config
+
+	// Runtime state
+	lock      sync.Mutex // Ensures thread safety for the in-memory caches and mining fields
+	closeOnce sync.Once  // Ensures exit channel will not be closed twice.
+
+	// Mining related fields
+	rand     *rand.Rand    // Properly seeded random source for nonces
+	update   chan struct{} // Notification channel to update mining parameters
+	hashrate metrics.Meter // Meter tracking the average hashrate
+}
+
 func main() {
 	app := cli.NewApp()
 	app.Name = "visualizenetwork"
@@ -118,7 +161,7 @@ func main() {
 			Destination: &RangeFlag,
 		},
 		cli.BoolTFlag{
-			Name:        "compressed",
+			Name:        "compressed, c",
 			Usage:       "Hides blocks inbetween coincident blocks, aside from those within the specified range(default = true)",
 			Destination: &CompressedFlag,
 		},
@@ -209,6 +252,7 @@ func AssembleGraph(chains []Chain) {
 		}
 	}
 	OrderChains(chains)
+	bottomUp(chains)
 	writeToDOT(chains)
 }
 
@@ -256,6 +300,35 @@ func addEdge(dir bool, node1 common.Hash, node2 common.Hash, order int, color st
 			edges = append(edges, "\""+node1Hash+"\" -> \""+node2Hash+"\""+" [dir = none]")
 		}
 	}
+}
+
+func bottomUp(chains []Chain) {
+	config := Config{Fakepow: false}
+	blake3, _ := New(config, nil, false)
+	for i := 0; i < len(chains); i++ {
+		for j := chains[i].endLoc; j >= chains[i].startLoc; j-- {
+			header, _ := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(j)))
+			diffOrder, _ := blake3.GetDifficultyOrder(header)
+			hash := header.Hash()
+			chains[i].addNode(hash, j)
+			for k := chains[i].order; k > diffOrder; k-- {
+				if len(search4Hash(chains, hash)) != 1 {
+					addEdge(false, hash, hash, k-1, "")
+				}
+			}
+		}
+	}
+}
+
+func search4Hash(chains []Chain, hash common.Hash) []int {
+	found := []int{}
+	for i := 0; i < len(chains); i++ {
+		_, err := chains[i].client.HeaderByHash(ctx, hash)
+		if err == nil {
+			found = append(found, i)
+		}
+	}
+	return found
 }
 
 func hasEdge(node1Hash string, node2Hash string) bool {
@@ -318,6 +391,61 @@ func AddUncle(hash common.Hash, order int) {
 	uncleSubGraph = append(uncleSubGraph, "\n\""+fmt.Sprint(order)+hash.String()[2:hashLength+2]+"\" [label = \""+hash.String()[2:hashLength+2]+"\"]")
 }
 
+// This function determines the difficulty order of a block
+func (blake3 *Blake3) GetDifficultyOrder(header *types.Header) (int, error) {
+	var difficulties []*big.Int
+
+	if header == nil {
+		return types.ContextDepth, errors.New("no header provided")
+	}
+	if !blake3.config.Fakepow {
+		difficulties = header.Difficulty
+	} else {
+		difficulties = []*big.Int{new(big.Int).Mul(params.MinimumDifficulty[params.PRIME], big.NewInt(4)), new(big.Int).Mul(params.MinimumDifficulty[params.REGION], big.NewInt(2)), params.MinimumDifficulty[params.ZONE]}
+	}
+	blockhash := blake3.SealHash(header)
+	for i, difficulty := range difficulties {
+		if difficulty != nil && big.NewInt(0).Cmp(difficulty) < 0 {
+			target := new(big.Int).Div(new(big.Int).Exp(big.NewInt(2), big.NewInt(256), big.NewInt(0)), difficulty)
+			if new(big.Int).SetBytes(blockhash.Bytes()).Cmp(target) <= 0 {
+				return i, nil
+			}
+		}
+	}
+	return -1, errors.New("block does not satisfy minimum difficulty")
+}
+
+// SealHash returns the hash of a block prior to it being sealed.
+// Used for proper implementation of a GetDifficultyOrder
+func (blake3 *Blake3) SealHash(header *types.Header) (hash common.Hash) {
+	hasher := blake3hash.New(32, nil)
+	hasher.Reset()
+
+	enc := []interface{}{
+		header.ParentHash,
+		header.UncleHash,
+		header.Coinbase,
+		header.Root,
+		header.TxHash,
+		header.ReceiptHash,
+		header.Bloom,
+		header.Difficulty,
+		header.Number,
+		header.GasLimit,
+		header.GasUsed,
+		header.Time,
+		header.Extra,
+		header.Location,
+	}
+	if header.BaseFee != nil {
+		enc = append(enc, header.BaseFee)
+	}
+	enc = append(enc, header.Nonce)
+	rlp.Encode(hasher, enc)
+	hasher.Sum(hash[:0])
+	return hash
+}
+
 func OrderChains(chains []Chain) []Chain {
 	//Insertion sorting the chains in order for next steps to be executed properly
 	for i := 0; i < len(chains); i++ {
@@ -335,6 +463,22 @@ func OrderChains(chains []Chain) []Chain {
 		}
 	}
 	return chains
+}
+
+// Creates a new Blake3 engine
+func New(config Config, notify []string, noverify bool) (*Blake3, error) {
+	// Do not allow Fakepow for a real consensus engine
+	config.Fakepow = false
+	blake3 := &Blake3{
+		config:   config,
+		hashrate: metrics.NewMeterForced(),
+	}
+	rng_seed, err := crand.Int(crand.Reader, big.NewInt(math.MaxInt64))
+	blake3.rand = rand.New(rand.NewSource(rng_seed.Int64()))
+	if nil != err {
+		return nil, err
+	}
+	return blake3, nil
 }
 
 //Function for writing a DOT file that generates the graph
