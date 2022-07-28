@@ -76,6 +76,7 @@ var (
 	primeChain   = Chain{prime, primeSubGraph, []node{}, 0, []Chain{region1Chain, region2Chain, region3Chain}, 0, 0}
 	chains       = []Chain{primeChain, region1Chain, region2Chain, region3Chain, zone11Chain, zone12Chain, zone13Chain, zone21Chain, zone22Chain, zone23Chain, zone31Chain, zone32Chain, zone33Chain}
 	edges        = []string{}
+	genesis      = Chain{nil, "subgraph cluster_genesis { label = \"Genesis\" node [color = yellow]", []node{}, -1, []Chain{}, 0, 0}
 	ctx          = context.Background()
 	hashLength   = 10
 	f            *os.File
@@ -231,7 +232,7 @@ func main() {
 
 func AssembleGraph(chains []Chain) {
 	for i := 0; i < len(chains); i++ {
-		for j := chains[i].startLoc; j <= chains[i].endLoc; j++ {
+		for j := chains[i].startLoc - 1; j <= chains[i].endLoc; j++ {
 			header, err := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(j)))
 			if err != nil {
 				panic(err)
@@ -262,7 +263,7 @@ func addCoincident(hash common.Hash, c []Chain) {
 		tempHash := header.Hash()
 		if err == nil {
 			c[i].addNode(tempHash, int(header.Number[c[i].order].Int64()))
-			if int(header.Number[c[i].order].Int64()) < c[i].startLoc && !CompressedFlag {
+			if int(header.Number[c[i].order].Int64()) < c[i].startLoc && !CompressedFlag && int(header.Number[c[i].order].Int64()) >= 1 {
 				c[i].startLoc = int(header.Number[c[i].order].Int64())
 			}
 			if int(header.Number[c[i].order].Int64()) > c[i].endLoc && !CompressedFlag {
@@ -279,11 +280,26 @@ func addCoincident(hash common.Hash, c []Chain) {
 }
 
 func (c *Chain) addNode(hash common.Hash, num int) {
-	if !hasNode(c, hash) {
-		c.nodes = append(c.nodes, node{hash, "\n\"" + getPrefix(c.order) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
+
+	if num == 0 {
+		if !genesishasNode(genesis, "\n\""+getPrefix(c.order)+hash.String()[2:hashLength+2]+"\"") {
+			genesis.nodes = append(genesis.nodes, node{hash, "\n\"" + getPrefix(c.order) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
+		}
+	} else {
+		if !hasNode(c, hash) {
+			c.nodes = append(c.nodes, node{hash, "\n\"" + getPrefix(c.order) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
+		}
 	}
 }
 
+func genesishasNode(c Chain, s string) bool {
+	for _, n := range c.nodes {
+		if strings.Contains(n.nodestring, s) {
+			return true
+		}
+	}
+	return false
+}
 func addEdge(dir bool, node1 common.Hash, node2 common.Hash, order int, color string) {
 	node1Hash := getPrefix(order) + node1.String()[2:hashLength+2]
 	node2Hash := getPrefix(order) + node2.String()[2:hashLength+2]
@@ -497,6 +513,11 @@ func New(config Config, notify []string, noverify bool) (*Blake3, error) {
 //Function for writing a DOT file that generates the graph
 func writeToDOT(chains []Chain) {
 	f.WriteString("digraph G {\nlayout = neato\nfontname=\"Helvetica,Arial,sans-serif\"\nnode [fontname=\"Helvetica,Arial,sans-serif\", shape = rectangle, style = filled] \nedge [fontname=\"Helvetica,Arial,sans-serif\"]")
+	f.WriteString(genesis.subGraph)
+	for _, n := range genesis.nodes {
+		f.WriteString(n.nodestring)
+	}
+	f.WriteString("}\n")
 	for _, n := range chains {
 		f.WriteString(n.subGraph)
 		for _, s := range n.nodes {
