@@ -280,16 +280,16 @@ func addCoincident(hash common.Hash, c []Chain) {
 
 func (c *Chain) addNode(hash common.Hash, num int) {
 	if !hasNode(c, hash) {
-		c.nodes = append(c.nodes, node{hash, "\n\"" + fmt.Sprint(c.order) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
+		c.nodes = append(c.nodes, node{hash, "\n\"" + getPrefix(c.order) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
 	}
 }
 
 func addEdge(dir bool, node1 common.Hash, node2 common.Hash, order int, color string) {
-	node1Hash := fmt.Sprint(order) + node1.String()[2:hashLength+2]
-	node2Hash := fmt.Sprint(order) + node2.String()[2:hashLength+2]
+	node1Hash := getPrefix(order) + node1.String()[2:hashLength+2]
+	node2Hash := getPrefix(order) + node2.String()[2:hashLength+2]
 	if !dir {
-		node1Hash = fmt.Sprint(order) + node1.String()[2:hashLength+2]
-		node2Hash = fmt.Sprint(order+1) + node1.String()[2:hashLength+2]
+		node1Hash = getPrefix(order) + node1.String()[2:hashLength+2]
+		node2Hash = getPrefix(order+1) + node1.String()[2:hashLength+2]
 	}
 	if !hasEdge(node1Hash, node2Hash) {
 		if color != "" {
@@ -388,7 +388,7 @@ func handleInclusion(chains []Chain) []Chain {
 }
 
 func AddUncle(hash common.Hash, order int) {
-	uncleSubGraph = append(uncleSubGraph, "\n\""+fmt.Sprint(order)+hash.String()[2:hashLength+2]+"\" [label = \""+hash.String()[2:hashLength+2]+"\"]")
+	uncleSubGraph = append(uncleSubGraph, "\n\""+getPrefix(order)+hash.String()[2:hashLength+2]+"\" [label = \""+hash.String()[2:hashLength+2]+"\"]")
 }
 
 // This function determines the difficulty order of a block
@@ -465,6 +465,19 @@ func OrderChains(chains []Chain) []Chain {
 	return chains
 }
 
+func getPrefix(order int) string {
+	prefix := ""
+	switch order {
+	case 0:
+		prefix = "p_"
+	case 1:
+		prefix = "r_"
+	case 2:
+		prefix = "z_"
+	}
+	return prefix
+}
+
 // Creates a new Blake3 engine
 func New(config Config, notify []string, noverify bool) (*Blake3, error) {
 	// Do not allow Fakepow for a real consensus engine
@@ -483,7 +496,7 @@ func New(config Config, notify []string, noverify bool) (*Blake3, error) {
 
 //Function for writing a DOT file that generates the graph
 func writeToDOT(chains []Chain) {
-	f.WriteString("digraph G {\nfontname=\"Helvetica,Arial,sans-serif\"\nnode [fontname=\"Helvetica,Arial,sans-serif\", shape = rectangle, style = filled] \nedge [fontname=\"Helvetica,Arial,sans-serif\"]")
+	f.WriteString("digraph G {\nlayout = neato\nfontname=\"Helvetica,Arial,sans-serif\"\nnode [fontname=\"Helvetica,Arial,sans-serif\", shape = rectangle, style = filled] \nedge [fontname=\"Helvetica,Arial,sans-serif\"]")
 	for _, n := range chains {
 		f.WriteString(n.subGraph)
 		for _, s := range n.nodes {
