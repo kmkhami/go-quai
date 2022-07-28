@@ -349,7 +349,7 @@ func OrderChains(chains []Chain) []Chain {
 
 //Function for writing a DOT file that generates the graph
 func writeToDOT(chains []Chain) {
-	f.WriteString("digraph G {\nfontname=\"Helvetica,Arial,sans-serif\"\nnode [fontname=\"Helvetica,Arial,sans-serif\", shape = rectangle, style = filled] \nedge [fontname=\"Helvetica,Arial,sans-serif\"]")
+	f.WriteString("digraph G {\nlayout = neato\nfontname=\"Helvetica,Arial,sans-serif\"\nnode [fontname=\"Helvetica,Arial,sans-serif\", shape = rectangle, style = filled] \nedge [fontname=\"Helvetica,Arial,sans-serif\"]")
 	for _, n := range chains {
 		f.WriteString(n.subGraph)
 		for _, s := range n.nodes {
