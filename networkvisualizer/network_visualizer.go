@@ -158,7 +158,10 @@ func main() {
 	}
 	if start == 0 && end == 0 {
 		for i := range chains {
-			blockNum, _ := chains[i].client.BlockNumber(context.Background())
+			blockNum, err := chains[i].client.BlockNumber(context.Background())
+			if err != nil {
+				panic(err)
+			}
 			chains[i].startLoc = int(blockNum) - 100
 			if chains[i].startLoc < 1 {
 				chains[i].startLoc = 1
@@ -167,7 +170,10 @@ func main() {
 		}
 	} else {
 		for i := range chains {
-			blockNum, _ := chains[i].client.BlockNumber(context.Background())
+			blockNum, err := chains[i].client.BlockNumber(context.Background())
+			if err != nil {
+				panic(err)
+			}
 			chains[i].startLoc = start
 			chains[i].endLoc = end
 			if chains[i].endLoc > int(blockNum) {
