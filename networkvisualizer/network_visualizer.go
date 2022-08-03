@@ -61,25 +61,27 @@ var (
 	zone33SubGraph  = "subgraph cluster_Zone33 { label = \"Zone33\" node [color = \"#c55200\"]"
 	uncleSubGraph   = []string{"subgraph cluster_Uncles { label = \"Uncles\""}
 	//Initializing all the chains to be used in the graph for each Region/Zone/Prime
-	zone11Chain  = Chain{zone11, zone11SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	zone12Chain  = Chain{zone12, zone12SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	zone13Chain  = Chain{zone13, zone13SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	region1Chain = Chain{region1, region1SubGraph, []node{}, 1, []Chain{zone11Chain, zone12Chain, zone13Chain}, 0, 0}
-	zone21Chain  = Chain{zone21, zone21SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	zone22Chain  = Chain{zone22, zone22SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	zone23Chain  = Chain{zone23, zone23SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	region2Chain = Chain{region2, region2SubGraph, []node{}, 1, []Chain{zone21Chain, zone22Chain, zone23Chain}, 0, 0}
-	zone31Chain  = Chain{zone31, zone31SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	zone32Chain  = Chain{zone32, zone32SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	zone33Chain  = Chain{zone33, zone33SubGraph, []node{}, 2, []Chain{}, 0, 0}
-	region3Chain = Chain{region3, region3SubGraph, []node{}, 1, []Chain{zone31Chain, zone32Chain, zone33Chain}, 0, 0}
-	primeChain   = Chain{prime, primeSubGraph, []node{}, 0, []Chain{region1Chain, region2Chain, region3Chain}, 0, 0}
-	chains       = []Chain{primeChain, region1Chain, region2Chain, region3Chain, zone11Chain, zone12Chain, zone13Chain, zone21Chain, zone22Chain, zone23Chain, zone31Chain, zone32Chain, zone33Chain}
+	zone11Chain  Chain
+	zone12Chain  Chain
+	zone13Chain  Chain
+	region1Chain Chain
+	zone21Chain  Chain
+	zone22Chain  Chain
+	zone23Chain  Chain
+	region2Chain Chain
+	zone31Chain  Chain
+	zone32Chain  Chain
+	zone33Chain  Chain
+	region3Chain Chain
+	primeChain   Chain
+	chains       []Chain
 	edges        = []string{}
-	genesis      = Chain{nil, "subgraph cluster_genesis { label = \"Genesis\" node [color = yellow]", []node{}, -1, []Chain{}, 0, 0}
+	genesis      = Chain{nil, "subgraph cluster_genesis { label = \"Genesis\" node [color = yellow]", []node{}, -1, []Chain{}, -1, 0, 0}
 	ctx          = context.Background()
 	hashLength   = 10
 	f            *os.File
+	config       = Config{Fakepow: false}
+	blake3, _    = New(config, nil, false)
 
 	//Destination for Flag arguments
 	StartFlag         int
@@ -93,13 +95,14 @@ var (
 )
 
 type Chain struct {
-	client    *ethclient.Client //Used for retrieving the Block information from the DB
-	subGraph  string            //Used to store initial subgraph formatting for respective chain
-	nodes     []node            //Contains the nodes of each chain
-	order     int               //Stores the order of the chain being dealt with
-	subChains []Chain           //Contains each subordinate chain
-	startLoc  int
-	endLoc    int
+	client      *ethclient.Client //Used for retrieving the Block information from the DB
+	subGraph    string            //Used to store initial subgraph formatting for respective chain
+	nodes       []node            //Contains the nodes of each chain
+	order       int               //Stores the order of the chain being dealt with
+	subChains   []Chain           //Contains each subordinate chain
+	domChainPos int
+	startLoc    int
+	endLoc      int
 }
 
 type node struct {
@@ -138,6 +141,23 @@ type Blake3 struct {
 	rand     *rand.Rand    // Properly seeded random source for nonces
 	update   chan struct{} // Notification channel to update mining parameters
 	hashrate metrics.Meter // Meter tracking the average hashrate
+}
+
+func init() {
+	zone11Chain = Chain{zone11, zone11SubGraph, []node{}, 2, []Chain{}, 1, 0, 0}
+	zone12Chain = Chain{zone12, zone12SubGraph, []node{}, 2, []Chain{}, 1, 0, 0}
+	zone13Chain = Chain{zone13, zone13SubGraph, []node{}, 2, []Chain{}, 1, 0, 0}
+	region1Chain = Chain{region1, region1SubGraph, []node{}, 1, []Chain{zone11Chain, zone12Chain, zone13Chain}, 0, 0, 0}
+	zone21Chain = Chain{zone21, zone21SubGraph, []node{}, 2, []Chain{}, 2, 0, 0}
+	zone22Chain = Chain{zone22, zone22SubGraph, []node{}, 2, []Chain{}, 2, 0, 0}
+	zone23Chain = Chain{zone23, zone23SubGraph, []node{}, 2, []Chain{}, 2, 0, 0}
+	region2Chain = Chain{region2, region2SubGraph, []node{}, 1, []Chain{zone21Chain, zone22Chain, zone23Chain}, 0, 0, 0}
+	zone31Chain = Chain{zone31, zone31SubGraph, []node{}, 2, []Chain{}, 3, 0, 0}
+	zone32Chain = Chain{zone32, zone32SubGraph, []node{}, 2, []Chain{}, 3, 0, 0}
+	zone33Chain = Chain{zone33, zone33SubGraph, []node{}, 2, []Chain{}, 3, 0, 0}
+	region3Chain = Chain{region3, region3SubGraph, []node{}, 1, []Chain{zone31Chain, zone32Chain, zone33Chain}, 0, 0, 0}
+	primeChain = Chain{prime, primeSubGraph, []node{}, 0, []Chain{region1Chain, region2Chain, region3Chain}, -1, 0, 0}
+	chains = []Chain{primeChain, region1Chain, region2Chain, region3Chain, zone11Chain, zone12Chain, zone13Chain, zone21Chain, zone22Chain, zone23Chain, zone31Chain, zone32Chain, zone33Chain}
 }
 
 func main() {
@@ -227,7 +247,8 @@ func main() {
 			chains[i].startLoc = Sflag
 		}
 	}
-	AssembleGraph(chains)
+	trueBottomUp(chains)
+	//AssembleGraph(chains)
 }
 
 func AssembleGraph(chains []Chain) {
@@ -253,8 +274,97 @@ func AssembleGraph(chains []Chain) {
 		}
 	}
 	OrderChains(chains)
-	bottomUp(chains)
+	trueBottomUp(chains)
 	writeToDOT(chains)
+}
+
+func trueBottomUp(chains []Chain) {
+
+	//Questions to ask:
+	//Which chains do we need to iterate through?
+	//Every chain
+	//What does every chain need to check?
+	//Prime: Check for coincident bad region blocks(down)[all the way]
+	//Region: Check for coincident bad prime and bad zone blocks(up and down)
+	//Zone: Check for coincident bad region blocks(up)[all the way]
+	//How are we checking up?
+	//Get order of the header and searching for that same hash in the DomChain
+	//How are we checking down?
+	//Search sub chains for hash
+	//What is the bottomup logic?
+	//Start at end location for each chain use ParentHash of each header to trace chain back to genesis/start.
+	//IMPORTANT SPECIFICATION:
+	//Checking UP/DOWN also implies tracing coincident blocks bottomUp to common-refrence(existing block)
+	/*
+		for i := 0; i < len(chains); i++ {
+			startBlocknum, _ := chains[i].client.BlockNumber(ctx)
+			header, _ := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(startBlocknum)))
+			hash := header.Hash()
+			for header.ParentHash[chains[i].order][0] != 0 {
+				difficultyOrder, err := blake3.GetDifficultyOrder(header)
+				if err != nil {
+					panic(err)
+				}
+				for k := chains[i].order; k > difficultyOrder; k-- {
+					if len(search4Hash(chains, hash)) != 1 {
+						addEdge(false, hash, hash, k-1, "")
+						if k-difficultyOrder == 2 {
+							chains[chains[i].domChainPos].traceSideChain(header)
+						} else if k-difficultyOrder == 1 {
+							chains[chains[i].domChainPos].traceSideChain(hash, header)
+						}
+					}
+				}
+
+				header, err = chains[i].client.HeaderByHash(ctx, header.ParentHash[chains[i].order])
+				if err != nil {
+					panic(err)
+				}
+			}
+
+		}*/
+	var hash common.Hash
+	for i := 0; i < len(chains); i++ {
+		header, _ := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(chains[i].endLoc)))
+		hash = header.Hash()
+		diffOrder, _ := blake3.GetDifficultyOrder(header)
+
+		for header.ParentHash[chains[i].order][0] != 0 || header.ParentHash[chains[i].order][1] != 0 || header.ParentHash[chains[i].order][2] != 0 {
+			chains[i].addNode(hash, int(header.Number[chains[i].order].Int64()))
+			addEdge(true, header.ParentHash[chains[i].order], hash, chains[i].order, "")
+			for k := chains[i].order; k > diffOrder; k-- {
+				if len(search4Hash(chains, hash)) != 1 {
+					addEdge(false, hash, hash, k-1, "")
+					chains[chains[i].domChainPos].traceSideChain(header)
+				}
+			}
+
+			header, _ = chains[i].client.HeaderByHash(ctx, header.ParentHash[chains[i].order])
+			diffOrder, _ = blake3.GetDifficultyOrder(header)
+			ghash := params.MainnetPrimeGenesisHash
+			hash = header.Hash()
+			if hash == ghash {
+				genesis.addNode(ghash, 0)
+			}
+
+		}
+		//chains[i].addNode(hash, int(header.Number[chains[i].order].Int64()))
+
+	}
+
+	if LiveFlag {
+
+	}
+	writeToDOT(chains)
+}
+
+func (chain *Chain) traceSideChain(header *types.Header) {
+	for !hasNode(chain, header.Hash()) {
+		header, _ = chain.client.HeaderByHash(ctx, header.ParentHash[chain.order])
+		if header != nil {
+			addEdge(true, header.ParentHash[chain.order], header.Hash(), chain.order, "")
+		}
+	}
 }
 
 func addCoincident(hash common.Hash, c []Chain) {
@@ -282,8 +392,10 @@ func addCoincident(hash common.Hash, c []Chain) {
 func (c *Chain) addNode(hash common.Hash, num int) {
 
 	if num == 0 {
-		if !genesishasNode(genesis, "\n\""+getPrefix(c.order)+hash.String()[2:hashLength+2]+"\"") {
-			genesis.nodes = append(genesis.nodes, node{hash, "\n\"" + getPrefix(c.order) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
+		if !genesishasNode(genesis, "\n\""+getPrefix(1)+hash.String()[2:hashLength+2]+"\"") {
+			genesis.nodes = append(genesis.nodes, node{hash, "\n\"" + getPrefix(0) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
+			genesis.nodes = append(genesis.nodes, node{hash, "\n\"" + getPrefix(1) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
+			genesis.nodes = append(genesis.nodes, node{hash, "\n\"" + getPrefix(2) + hash.String()[2:hashLength+2] + "\" [label = \"" + hash.String()[2:hashLength+2] + "\\n " + fmt.Sprint(num) + "\"]", num})
 		}
 	} else {
 		if !hasNode(c, hash) {
@@ -319,8 +431,6 @@ func addEdge(dir bool, node1 common.Hash, node2 common.Hash, order int, color st
 }
 
 func bottomUp(chains []Chain) {
-	config := Config{Fakepow: false}
-	blake3, _ := New(config, nil, false)
 	for i := 0; i < len(chains); i++ {
 		for j := chains[i].endLoc; j >= chains[i].startLoc; j-- {
 			header, _ := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(j)))
@@ -330,6 +440,8 @@ func bottomUp(chains []Chain) {
 			for k := chains[i].order; k > diffOrder; k-- {
 				if len(search4Hash(chains, hash)) != 1 {
 					addEdge(false, hash, hash, k-1, "")
+					head, _ := chains[0].client.HeaderByHash(ctx, hash)
+					fmt.Println(head.Hash())
 				}
 			}
 		}
@@ -484,6 +596,8 @@ func OrderChains(chains []Chain) []Chain {
 func getPrefix(order int) string {
 	prefix := ""
 	switch order {
+	case -1:
+		prefix = "gen_"
 	case 0:
 		prefix = "p_"
 	case 1:
