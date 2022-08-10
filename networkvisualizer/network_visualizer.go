@@ -76,7 +76,7 @@ var (
 	primeChain   Chain
 	chains       []Chain
 	edges        = []string{}
-	genesis      = Chain{nil, "subgraph cluster_genesis { label = \"Genesis\" node [color = yellow]", []node{}, -1, []Chain{}, -1, 0, 0}
+	genesis      = Chain{nil, "subgraph cluster_genesis { label = \"Genesis\" node [color = yellow]", []node{}, -1, []Chain{}, -1, 0, 0, 0}
 	ctx          = context.Background()
 	hashLength   = 10
 	f            *os.File
@@ -103,6 +103,7 @@ type Chain struct {
 	domChainPos int
 	startLoc    int
 	endLoc      int
+	fPos        int
 }
 
 type node struct {
@@ -144,19 +145,19 @@ type Blake3 struct {
 }
 
 func init() {
-	zone11Chain = Chain{zone11, zone11SubGraph, []node{}, 2, []Chain{}, 1, 0, 0}
-	zone12Chain = Chain{zone12, zone12SubGraph, []node{}, 2, []Chain{}, 1, 0, 0}
-	zone13Chain = Chain{zone13, zone13SubGraph, []node{}, 2, []Chain{}, 1, 0, 0}
-	region1Chain = Chain{region1, region1SubGraph, []node{}, 1, []Chain{zone11Chain, zone12Chain, zone13Chain}, 0, 0, 0}
-	zone21Chain = Chain{zone21, zone21SubGraph, []node{}, 2, []Chain{}, 2, 0, 0}
-	zone22Chain = Chain{zone22, zone22SubGraph, []node{}, 2, []Chain{}, 2, 0, 0}
-	zone23Chain = Chain{zone23, zone23SubGraph, []node{}, 2, []Chain{}, 2, 0, 0}
-	region2Chain = Chain{region2, region2SubGraph, []node{}, 1, []Chain{zone21Chain, zone22Chain, zone23Chain}, 0, 0, 0}
-	zone31Chain = Chain{zone31, zone31SubGraph, []node{}, 2, []Chain{}, 3, 0, 0}
-	zone32Chain = Chain{zone32, zone32SubGraph, []node{}, 2, []Chain{}, 3, 0, 0}
-	zone33Chain = Chain{zone33, zone33SubGraph, []node{}, 2, []Chain{}, 3, 0, 0}
-	region3Chain = Chain{region3, region3SubGraph, []node{}, 1, []Chain{zone31Chain, zone32Chain, zone33Chain}, 0, 0, 0}
-	primeChain = Chain{prime, primeSubGraph, []node{}, 0, []Chain{region1Chain, region2Chain, region3Chain}, -1, 0, 0}
+	zone11Chain = Chain{zone11, zone11SubGraph, []node{}, 2, []Chain{}, 1, 0, 0, 0}
+	zone12Chain = Chain{zone12, zone12SubGraph, []node{}, 2, []Chain{}, 1, 0, 0, 0}
+	zone13Chain = Chain{zone13, zone13SubGraph, []node{}, 2, []Chain{}, 1, 0, 0, 0}
+	region1Chain = Chain{region1, region1SubGraph, []node{}, 1, []Chain{zone11Chain, zone12Chain, zone13Chain}, 0, 0, 0, 0}
+	zone21Chain = Chain{zone21, zone21SubGraph, []node{}, 2, []Chain{}, 2, 0, 0, 0}
+	zone22Chain = Chain{zone22, zone22SubGraph, []node{}, 2, []Chain{}, 2, 0, 0, 0}
+	zone23Chain = Chain{zone23, zone23SubGraph, []node{}, 2, []Chain{}, 2, 0, 0, 0}
+	region2Chain = Chain{region2, region2SubGraph, []node{}, 1, []Chain{zone21Chain, zone22Chain, zone23Chain}, 0, 0, 0, 0}
+	zone31Chain = Chain{zone31, zone31SubGraph, []node{}, 2, []Chain{}, 3, 0, 0, 0}
+	zone32Chain = Chain{zone32, zone32SubGraph, []node{}, 2, []Chain{}, 3, 0, 0, 0}
+	zone33Chain = Chain{zone33, zone33SubGraph, []node{}, 2, []Chain{}, 3, 0, 0, 0}
+	region3Chain = Chain{region3, region3SubGraph, []node{}, 1, []Chain{zone31Chain, zone32Chain, zone33Chain}, 0, 0, 0, 0}
+	primeChain = Chain{prime, primeSubGraph, []node{}, 0, []Chain{region1Chain, region2Chain, region3Chain}, -1, 0, 0, 0}
 	chains = []Chain{primeChain, region1Chain, region2Chain, region3Chain, zone11Chain, zone12Chain, zone13Chain, zone21Chain, zone22Chain, zone23Chain, zone31Chain, zone32Chain, zone33Chain}
 }
 
@@ -248,7 +249,6 @@ func main() {
 		}
 	}
 	trueBottomUp(chains)
-	//AssembleGraph(chains)
 }
 
 func AssembleGraph(chains []Chain) {
@@ -279,50 +279,6 @@ func AssembleGraph(chains []Chain) {
 }
 
 func trueBottomUp(chains []Chain) {
-
-	//Questions to ask:
-	//Which chains do we need to iterate through?
-	//Every chain
-	//What does every chain need to check?
-	//Prime: Check for coincident bad region blocks(down)[all the way]
-	//Region: Check for coincident bad prime and bad zone blocks(up and down)
-	//Zone: Check for coincident bad region blocks(up)[all the way]
-	//How are we checking up?
-	//Get order of the header and searching for that same hash in the DomChain
-	//How are we checking down?
-	//Search sub chains for hash
-	//What is the bottomup logic?
-	//Start at end location for each chain use ParentHash of each header to trace chain back to genesis/start.
-	//IMPORTANT SPECIFICATION:
-	//Checking UP/DOWN also implies tracing coincident blocks bottomUp to common-refrence(existing block)
-	/*
-		for i := 0; i < len(chains); i++ {
-			startBlocknum, _ := chains[i].client.BlockNumber(ctx)
-			header, _ := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(startBlocknum)))
-			hash := header.Hash()
-			for header.ParentHash[chains[i].order][0] != 0 {
-				difficultyOrder, err := blake3.GetDifficultyOrder(header)
-				if err != nil {
-					panic(err)
-				}
-				for k := chains[i].order; k > difficultyOrder; k-- {
-					if len(search4Hash(chains, hash)) != 1 {
-						addEdge(false, hash, hash, k-1, "")
-						if k-difficultyOrder == 2 {
-							chains[chains[i].domChainPos].traceSideChain(header)
-						} else if k-difficultyOrder == 1 {
-							chains[chains[i].domChainPos].traceSideChain(hash, header)
-						}
-					}
-				}
-
-				header, err = chains[i].client.HeaderByHash(ctx, header.ParentHash[chains[i].order])
-				if err != nil {
-					panic(err)
-				}
-			}
-
-		}*/
 	var hash common.Hash
 	for i := 0; i < len(chains); i++ {
 		header, _ := chains[i].client.HeaderByNumber(ctx, big.NewInt(int64(chains[i].endLoc)))
@@ -348,14 +304,11 @@ func trueBottomUp(chains []Chain) {
 			}
 
 		}
-		//chains[i].addNode(hash, int(header.Number[chains[i].order].Int64()))
-
-	}
-
-	if LiveFlag {
-
 	}
 	writeToDOT(chains)
+	if LiveFlag {
+		liveWriteToDOT(chains)
+	}
 }
 
 func (chain *Chain) traceSideChain(header *types.Header) {
@@ -624,6 +577,11 @@ func New(config Config, notify []string, noverify bool) (*Blake3, error) {
 	return blake3, nil
 }
 
+func liveWriteToDOT(chains []Chain) {
+	//content, _ := os.ReadFile(SaveFileFlag)
+	//text := string(content)
+}
+
 //Function for writing a DOT file that generates the graph
 func writeToDOT(chains []Chain) {
 	f.WriteString("digraph G {\nlayout = neato\nfontname=\"Helvetica,Arial,sans-serif\"\nnode [fontname=\"Helvetica,Arial,sans-serif\", shape = rectangle, style = filled] \nedge [fontname=\"Helvetica,Arial,sans-serif\"]")
@@ -632,11 +590,13 @@ func writeToDOT(chains []Chain) {
 		f.WriteString(n.nodestring)
 	}
 	f.WriteString("}\n")
-	for _, n := range chains {
+	for i, n := range chains {
 		f.WriteString(n.subGraph)
 		for _, s := range n.nodes {
 			f.WriteString(s.nodestring)
 		}
+		fpos, _ := f.Seek(0, 1)
+		chains[i].fPos = int(fpos)
 		f.WriteString("}\n")
 
 	}
