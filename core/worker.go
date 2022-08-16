@@ -58,13 +58,6 @@ const (
 	staleThreshold = 7
 )
 
-// Backend wraps all methods required for mining.
-type Backend interface {
-	Core() *Core
-	TxPool() *TxPool
-	StateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error)
-}
-
 // environment is the worker's current environment and holds all
 // information of the sealing block generation.
 type environment struct {
@@ -184,8 +177,8 @@ type worker struct {
 	config      *Config
 	chainConfig *params.ChainConfig
 	engine      consensus.Engine
-	eth         Backend
-	core        *Core
+
+	slice *Slice
 
 	// Feeds
 	pendingLogsFeed  event.Feed
@@ -250,18 +243,16 @@ type worker struct {
 	resubmitHook func(time.Duration, time.Duration) // Method to call upon updating resubmitting interval.
 }
 
-func NewWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(header *types.Header) bool, init bool) *worker {
+func NewWorker(config *Config, chainConfig *params.ChainConfig, core *Core, engine consensus.Engine, mux *event.TypeMux, isLocalBlock func(header *types.Header) bool, init bool) *worker {
 	worker := &worker{
 		config:             config,
 		chainConfig:        chainConfig,
 		engine:             engine,
-		eth:                eth,
 		mux:                mux,
-		core:               eth.Core(),
 		isLocalBlock:       isLocalBlock,
 		localUncles:        make(map[common.Hash]*types.Block),
 		remoteUncles:       make(map[common.Hash]*types.Block),
-		unconfirmed:        newUnconfirmedBlocks(eth.Core(), sealingLogAtDepth),
+		unconfirmed:        newUnconfirmedBlocks(core.sl.hc, sealingLogAtDepth),
 		pendingTasks:       make(map[common.Hash]*task),
 		txsCh:              make(chan NewTxsEvent, txChanSize),
 		chainHeadCh:        make(chan ChainHeadEvent, chainHeadChanSize),
@@ -278,7 +269,7 @@ func NewWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
 	// Subscribe events for blockchain
-	worker.chainHeadSub = eth.Core().SubscribeChainHeadEvent(worker.chainHeadCh)
+	worker.chainHeadSub = slice.hc.SubscribeChainHeadEvent(worker.chainHeadCh)
 	worker.chainSideSub = eth.Core().SubscribeChainSideEvent(worker.chainSideCh)
 
 	// Sanitize recommit interval if the user-specified one is too short.

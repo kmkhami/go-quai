@@ -1861,7 +1861,7 @@ func MakeGenesis(ctx *cli.Context) *core.Genesis {
 }
 
 // MakeChain creates a chain manager from set command line flags.
-func MakeChain(ctx *cli.Context, stack *node.Node) (*core.Core, ethdb.Database) {
+func MakeChain(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) (*core.Core, ethdb.Database) {
 	var err error
 	chainDb := MakeChainDatabase(ctx, stack, false) // TODO(rjl493456442) support read-only database
 	config, _, err := core.SetupGenesisBlock(chainDb, MakeGenesis(ctx))
@@ -1902,10 +1902,14 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (*core.Core, ethdb.Database) 
 
 	vmcfg := vm.Config{EnablePreimageRecording: ctx.GlobalBool(VMEnableDebugFlag.Name)}
 
-	_, cfg := makeConfigNode(ctx)
+	if cfg.Miner.GasPrice == nil || cfg.Miner.GasPrice.Cmp(common.Big0) <= 0 {
+		log.Warn("Sanitizing invalid miner gas price", "provided", cfg.Miner.GasPrice, "updated", ethconfig.Defaults.Miner.GasPrice)
+		cfg.Miner.GasPrice = new(big.Int).Set(ethconfig.Defaults.Miner.GasPrice)
+	}
+
 	// TODO(rjl493456442) disable snapshot generation/wiping if the chain is read only.
 	// Disable transaction indexing/unindexing by default.
-	protocol, err := core.NewCore(chainDb, stack.EventMux(), ctx.GlobalString(DomUrl.Name), makeSubUrls(ctx), engine, cache, vmcfg)
+	protocol, err := core.NewCore(chainDb, &cfg.Miner, stack.EventMux(), nil, ctx.GlobalString(DomUrl.Name), makeSubUrls(ctx), engine, cache, vmcfg)
 	if err != nil {
 		Fatalf("Can't create BlockChain: %v", err)
 	}

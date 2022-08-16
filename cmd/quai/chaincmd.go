@@ -234,10 +234,10 @@ func importChain(ctx *cli.Context) error {
 	// Start system runtime metrics collection
 	go metrics.CollectProcessMetrics(3 * time.Second)
 
-	stack, _ := makeConfigNode(ctx)
+	stack, gCfg := makeConfigNode(ctx)
 	defer stack.Close()
 
-	core, db := utils.MakeChain(ctx, stack)
+	core, db := utils.MakeChain(ctx, stack, &gCfg.Eth)
 	defer db.Close()
 
 	// Start periodically gathering memory profiles
@@ -309,10 +309,10 @@ func exportChain(ctx *cli.Context) error {
 		utils.Fatalf("This command requires an argument.")
 	}
 
-	stack, _ := makeConfigNode(ctx)
+	stack, gCfg := makeConfigNode(ctx)
 	defer stack.Close()
 
-	chain, _ := utils.MakeChain(ctx, stack)
+	chain, _ := utils.MakeChain(ctx, stack, &gCfg.Eth)
 	start := time.Now()
 
 	var err error

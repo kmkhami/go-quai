@@ -50,7 +50,7 @@ type Slice struct {
 	wg sync.WaitGroup // slice processing wait group for shutting down
 }
 
-func NewSlice(db ethdb.Database, config *Config, mux *event.TypeMux, isLocalBlock func(block *types.Header) bool, eth Backend, chainConfig *params.ChainConfig, domClientUrl string, subClientUrls []string, engine consensus.Engine, cacheConfig *CacheConfig, vmConfig vm.Config) (*Slice, error) {
+func NewSlice(db ethdb.Database, config *Config, mux *event.TypeMux, isLocalBlock func(block *types.Header) bool, chainConfig *params.ChainConfig, domClientUrl string, subClientUrls []string, engine consensus.Engine, cacheConfig *CacheConfig, vmConfig vm.Config) (*Slice, error) {
 	sl := &Slice{
 		config: chainConfig,
 		engine: engine,
@@ -68,7 +68,7 @@ func NewSlice(db ethdb.Database, config *Config, mux *event.TypeMux, isLocalBloc
 		return nil, err
 	}
 
-	sl.worker = NewWorker(config, chainConfig, engine, eth, mux, isLocalBlock, true)
+	sl.worker = NewWorker(config, chainConfig, sl, engine, mux, isLocalBlock, true)
 
 	sl.currentHeads[0] = sl.hc.genesisHeader
 	sl.currentHeads[1] = sl.hc.genesisHeader
