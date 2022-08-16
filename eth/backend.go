@@ -189,7 +189,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		}
 	)
 
-	eth.core, err = core.NewCore(chainDb, chainConfig, eth.config.DomUrl, eth.config.SubUrls, eth.engine, cacheConfig, vmConfig)
+	eth.core, err = core.NewCore(chainDb, &config.Miner, eth.EventMux(), eth.isLocalBlock, eth, chainConfig, eth.config.DomUrl, eth.config.SubUrls, eth.engine, cacheConfig, vmConfig)
 	if err != nil {
 		return nil, err
 	}

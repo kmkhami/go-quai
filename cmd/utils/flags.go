@@ -62,7 +62,6 @@ import (
 	"github.com/spruce-solutions/go-quai/metrics"
 	"github.com/spruce-solutions/go-quai/metrics/exp"
 	"github.com/spruce-solutions/go-quai/metrics/influxdb"
-	"github.com/spruce-solutions/go-quai/miner"
 	"github.com/spruce-solutions/go-quai/node"
 	"github.com/spruce-solutions/go-quai/p2p"
 	"github.com/spruce-solutions/go-quai/p2p/enode"
@@ -1366,7 +1365,7 @@ func setTxPool(ctx *cli.Context, cfg *core.TxPoolConfig) {
 	}
 }
 
-func setMiner(ctx *cli.Context, cfg *miner.Config) {
+func setMiner(ctx *cli.Context, cfg *core.Config) {
 	if ctx.GlobalIsSet(MinerNotifyFlag.Name) {
 		cfg.Notify = strings.Split(ctx.GlobalString(MinerNotifyFlag.Name), ",")
 	}
@@ -1903,9 +1902,10 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (*core.Core, ethdb.Database) 
 
 	vmcfg := vm.Config{EnablePreimageRecording: ctx.GlobalBool(VMEnableDebugFlag.Name)}
 
+	_, cfg := makeConfigNode(ctx)
 	// TODO(rjl493456442) disable snapshot generation/wiping if the chain is read only.
 	// Disable transaction indexing/unindexing by default.
-	protocol, err := core.NewCore(chainDb, config, ctx.GlobalString(DomUrl.Name), makeSubUrls(ctx), engine, cache, vmcfg)
+	protocol, err := core.NewCore(chainDb, stack.EventMux(), ctx.GlobalString(DomUrl.Name), makeSubUrls(ctx), engine, cache, vmcfg)
 	if err != nil {
 		Fatalf("Can't create BlockChain: %v", err)
 	}

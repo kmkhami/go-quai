@@ -23,8 +23,8 @@ type Core struct {
 	engine consensus.Engine
 }
 
-func NewCore(db ethdb.Database, chainConfig *params.ChainConfig, domClientUrl string, subClientUrls []string, engine consensus.Engine, cacheConfig *CacheConfig, vmConfig vm.Config) (*Core, error) {
-	slice, err := NewSlice(db, chainConfig, domClientUrl, subClientUrls, engine, cacheConfig, vmConfig)
+func NewCore(db ethdb.Database, config *Config, mux *event.TypeMux, isLocalBlock func(block *types.Header) bool, eth Backend, chainConfig *params.ChainConfig, domClientUrl string, subClientUrls []string, engine consensus.Engine, cacheConfig *CacheConfig, vmConfig vm.Config) (*Core, error) {
+	slice, err := NewSlice(db, config, mux, isLocalBlock, eth, chainConfig, domClientUrl, subClientUrls, engine, cacheConfig, vmConfig)
 	if err != nil {
 		return nil, err
 	}
