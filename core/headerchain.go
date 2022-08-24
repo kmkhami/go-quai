@@ -314,7 +314,7 @@ func (hc *HeaderChain) SetCurrentHeader(head *types.Header) ([]*types.Header, er
 		fmt.Println("prevheader: ", prevHeader.Hash())
 	}
 
-	fmt.Println("Attempting to write canonical hash")
+	fmt.Println("Attempting to write canonical hash", head.Hash())
 	fmt.Println("hashStack", hashStack)
 
 	// Run through the hash stack to update canonicalHash and forward state processor

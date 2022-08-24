@@ -182,7 +182,7 @@ func (sl *Slice) SliceAppend(block *types.Block) error {
 
 	// Append
 	// if the context is not zone, we have to wait for the append in the sub
-	err = sl.Append(block, td)
+	err = sl.AppendWithLock(block, td)
 	if err != nil {
 		return err
 	}
@@ -190,15 +190,15 @@ func (sl *Slice) SliceAppend(block *types.Block) error {
 	reorg := sl.HLCR(td)
 
 	if reorg {
-		if err := sl.SetHeaderChainHead(block.Header()); err != nil {
+		if err := sl.SetHeaderChainHeadWithLock(block.Header()); err != nil {
 			// updating pending header again since block insertion failed
-			sl.UpdatePendingHeader(sl.hc.CurrentHeader(), sl.pendingHeader)
+			sl.UpdatePendingHeaderWithLock(sl.hc.CurrentHeader(), sl.pendingHeader)
 			return err
 		}
 
 		// Update the pending Header.
 		currentPending := sl.pendingHeader
-		err := sl.UpdatePendingHeader(block.Header(), sl.pendingHeader)
+		err := sl.UpdatePendingHeaderWithLock(block.Header(), currentPending)
 		if err != nil {
 			sl.pendingHeader = currentPending
 			return err
@@ -211,10 +211,15 @@ func (sl *Slice) SliceAppend(block *types.Block) error {
 }
 
 func (sl *Slice) UpdatePendingHeader(header *types.Header, pendingHeader *types.Header) error {
+	sl.slicemu.Lock()
+	defer sl.slicemu.Unlock()
 
 	fmt.Println("header location: ", header.Location, "header number:", header.Number)
 	fmt.Println("pending location: ", pendingHeader.Location, "pending number", pendingHeader.Number)
+	return sl.UpdatePendingHeaderWithLock(header, pendingHeader)
+}
 
+func (sl *Slice) UpdatePendingHeaderWithLock(header *types.Header, pendingHeader *types.Header) error {
 	if header.Hash() == sl.config.GenesisHashes[types.QuaiNetworkContext] {
 		sl.pendingHeader = pendingHeader
 
@@ -328,11 +333,11 @@ func (sl *Slice) untwistHead(block *types.Block, err error) error {
 
 			// If there is a prime twist this is a PRTP != PRTR so we should drop back to previous slice head
 			if errors.Is(err, consensus.ErrPrimeTwist) || errors.Is(err, consensus.ErrRegionTwist) {
-				err = sl.SetHeaderChainHead(sl.currentHeads[block.Header().Location[types.QuaiNetworkContext]-1])
+				err = sl.SetHeaderChainHeadWithLock(sl.currentHeads[block.Header().Location[types.QuaiNetworkContext]-1])
 				if err != nil {
 					return err
 				}
-				err = sl.UpdatePendingHeader(sl.hc.CurrentHeader(), sl.pendingHeader)
+				err = sl.UpdatePendingHeaderWithLock(sl.hc.CurrentHeader(), sl.pendingHeader)
 				if err != nil {
 					return err
 				}
@@ -361,9 +366,14 @@ func (sl *Slice) untwistHead(block *types.Block, err error) error {
 
 // Append
 func (sl *Slice) Append(block *types.Block, td *big.Int) error {
-	sl.appendmu.Lock()
-	defer sl.appendmu.Unlock()
+	sl.slicemu.Lock()
+	defer sl.slicemu.Unlock()
 
+	return sl.AppendWithLock(block, td)
+}
+
+// Append
+func (sl *Slice) AppendWithLock(block *types.Block, td *big.Int) error {
 	err := sl.hc.Append(block)
 	if err != nil {
 		fmt.Println("Slice error in append", err)
@@ -391,6 +401,13 @@ func (sl *Slice) Append(block *types.Block, td *big.Int) error {
 }
 
 func (sl *Slice) SetHeaderChainHead(head *types.Header) error {
+	sl.slicemu.Lock()
+	defer sl.slicemu.Unlock()
+
+	return sl.SetHeaderChainHeadWithLock(head)
+}
+
+func (sl *Slice) SetHeaderChainHeadWithLock(head *types.Header) error {
 	oldHead := sl.hc.CurrentHeader()
 	fmt.Println("setting head to:", head.Hash())
 	sliceHeaders, err := sl.hc.SetCurrentHeader(head)
@@ -634,6 +651,8 @@ func (sl *Slice) procFutureHeads() {
 		sort.Slice(headers, func(i, j int) bool {
 			return headers[i].Number64() < headers[j].Number64()
 		})
+		sl.slicemu.Lock()
+		defer sl.slicemu.Unlock()
 		// Insert one by one as chain insertion needs contiguous ancestry between blocks
 		for i := range headers {
 			fmt.Println("headers i", headers[i])

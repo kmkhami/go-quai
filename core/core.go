@@ -48,7 +48,7 @@ func (c *Core) InsertChain(blocks types.Blocks) (int, error) {
 		if blockOrder == types.QuaiNetworkContext {
 			err = c.sl.SliceAppend(block)
 			if err != nil {
-				fmt.Println("err in Append core: ", err)
+				fmt.Println("err in Append core: ", block.Hash, err)
 				return i, err
 			}
 		}
