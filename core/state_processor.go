@@ -202,9 +202,10 @@ func (p *StateProcessor) Process(block *types.Block) (types.Receipts, []*types.L
 		allLogs = append(allLogs, receipt.Logs...)
 		i++
 	}
-
+	fmt.Println(block.Header())
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.hc, header, statedb, block.Transactions(), block.Uncles())
+	fmt.Println(block.Header())
 
 	return receipts, allLogs, statedb, *usedGas, nil
 }
@@ -291,6 +292,8 @@ func (p *StateProcessor) Apply(block *types.Block) ([]*types.Log, error) {
 		return nil, err
 	}
 	triedb := p.stateCache.TrieDB()
+
+	fmt.Println("Committing triedb", block.Header().Hash(), block.Header().Root[types.QuaiNetworkContext])
 
 	// If we're running an archive node, always flush
 	if p.cacheConfig.TrieDirtyDisabled {
@@ -554,6 +557,7 @@ func (p *StateProcessor) StateAtBlock(block *types.Block, reexec uint64, base *s
 		parent common.Hash
 	)
 	for current.NumberU64() < origin {
+		fmt.Println("current num", current.NumberU64(), origin)
 		// Print progress logs if long enough time elapsed
 		if time.Since(logged) > 8*time.Second && report {
 			log.Info("Regenerating historical state", "block", current.NumberU64()+1, "target", origin, "remaining", origin-current.NumberU64()-1, "elapsed", time.Since(start))

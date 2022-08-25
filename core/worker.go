@@ -436,6 +436,7 @@ func (w *worker) GeneratePendingHeader(header *types.Header) (*types.Header, err
 		return nil, err
 	}
 
+	fmt.Println("worker: FinalizeAssembleAndBroadcast: len uncles", len(env.unclelist()))
 	task := &task{receipts: env.receipts, state: env.state, block: block, createdAt: time.Now()}
 	w.unconfirmed.Shift(block.NumberU64() - 1)
 	log.Info("Commit new sealing work", "number", block.Number(), "sealhash", w.engine.SealHash(block.Header()),
@@ -480,6 +481,7 @@ func (w *worker) GeneratePendingHeader(header *types.Header) (*types.Header, err
 	fmt.Println("pending root: ", w.snapshotBlock.Root())
 	fmt.Println("pending tx hash: ", w.snapshotBlock.TxHash())
 	fmt.Println("pending receipt hash: ", w.snapshotBlock.ReceiptHash())
+	fmt.Println("pending len uncles", len(w.snapshotBlock.Body().Uncles))
 	return w.snapshotBlock.Header(), nil
 
 }
@@ -584,6 +586,7 @@ func (w *worker) makeEnv(parent *types.Block, header *types.Header, coinbase com
 	// the miner to speed block sealing up a bit.
 	state, err := w.hc.bc.processor.StateAt(parent.Root())
 	if err != nil {
+		fmt.Println("Missing state for", parent.Hash(), parent.Root())
 		// Note since the sealing block can be created upon the arbitrary parent
 		// block, but the state of parent block may already be pruned, so the necessary
 		// state recovery is needed here in the future.
@@ -653,6 +656,7 @@ func (w *worker) updateSnapshot(env *environment) {
 		env.receipts,
 		trie.NewStackTrie(nil),
 	)
+	fmt.Println("updateSnapShot: len uncles", len(env.unclelist()))
 	w.snapshotReceipts = copyReceipts(env.receipts)
 	w.snapshotState = env.state.Copy()
 }
@@ -801,7 +805,7 @@ func (w *worker) prepareWork(genParams *generateParams, parentHeader *types.Head
 	defer w.mu.RUnlock()
 
 	// Find the parent block for sealing task
-	fmt.Println("parentHeader.Hash:", parentHeader.Hash(), "parentHeader.Number:", parentHeader.Number64())
+	fmt.Println("worker: parentHeader.Hash:", parentHeader.Hash(), "parentHeader.Number:", parentHeader.Number64())
 	parent := w.hc.bc.GetBlock(parentHeader.Hash(), parentHeader.Number64())
 	if parent == nil {
 		return nil, fmt.Errorf("missing parent")

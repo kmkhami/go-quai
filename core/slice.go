@@ -187,6 +187,7 @@ func (sl *Slice) SliceAppend(block *types.Block) error {
 		return err
 	}
 
+	fmt.Println("AppendWithLock done:", block.Header().Hash())
 	reorg := sl.HLCR(td)
 
 	if reorg {
@@ -333,6 +334,7 @@ func (sl *Slice) untwistHead(block *types.Block, err error) error {
 
 			// If there is a prime twist this is a PRTP != PRTR so we should drop back to previous slice head
 			if errors.Is(err, consensus.ErrPrimeTwist) || errors.Is(err, consensus.ErrRegionTwist) {
+				fmt.Println("err with twist", sl.currentHeads[block.Header().Location[types.QuaiNetworkContext]-1])
 				err = sl.SetHeaderChainHeadWithLock(sl.currentHeads[block.Header().Location[types.QuaiNetworkContext]-1])
 				if err != nil {
 					return err
@@ -380,6 +382,8 @@ func (sl *Slice) AppendWithLock(block *types.Block, td *big.Int) error {
 		return err
 	}
 
+	fmt.Println("hc append done", block.Header().Hash())
+
 	// WriteTd
 	// Remove this once td is converted to a single value.
 	externTd := make([]*big.Int, 3)
@@ -411,7 +415,6 @@ func (sl *Slice) SetHeaderChainHeadWithLock(head *types.Header) error {
 	oldHead := sl.hc.CurrentHeader()
 	fmt.Println("setting head to:", head.Hash())
 	sliceHeaders, err := sl.hc.SetCurrentHeader(head)
-
 	if err != nil {
 		return err
 	}

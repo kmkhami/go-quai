@@ -146,11 +146,11 @@ func (hc *HeaderChain) Append(block *types.Block) error {
 	defer hc.headermu.Unlock()
 
 	fmt.Println("Block information: Hash:", block.Hash(), "Number:", block.NumberU64(), "Location:", block.Header().Location, "Parent:", block.ParentHash())
-	err := hc.Appendable(block)
-	if err != nil {
-		fmt.Println("Error on appendable, err:", err)
-		return err
-	}
+	// err := hc.Appendable(block)
+	// if err != nil {
+	// 	fmt.Println("Error on appendable, err:", err)
+	// 	return err
+	// }
 
 	// Append header to the headerchain
 	batch := hc.headerDb.NewBatch()
@@ -194,11 +194,13 @@ func (hc *HeaderChain) Append(block *types.Block) error {
 	}
 	// Add to the heads queue
 	hc.heads = append(hc.heads, block.Header())
+	fmt.Println("after garbage collecton", block.Header().Hash())
 
 	// Sort the heads by number
 	sort.Slice(hc.heads, func(i, j int) bool {
 		return hc.heads[i].Number[types.QuaiNetworkContext].Uint64() < hc.heads[j].Number[types.QuaiNetworkContext].Uint64()
 	})
+	fmt.Println("after sort", block.Header().Hash())
 
 	return nil
 }

@@ -101,11 +101,12 @@ func (bc *BlockChain) Append(block *types.Block) ([]*types.Log, error) {
 	logs, err := bc.processor.Apply(block)
 	if err != nil {
 		bc.reportBlock(block, err)
-		bc.futureBlocks.Remove(block.Hash())
+		// if bc.futureBlocks.Contains(block.Hash()) {
+		// 	bc.futureBlocks.Remove(block.Hash())
+		// }
 		return nil, err
 	}
-	fmt.Println("bc.Append:")
-	fmt.Println("parentHeader.Hash:", block.Hash(), "parentHeader.Number:", block.NumberU64())
+	fmt.Println("WriteBlock:", block.Hash(), "append.Number:", block.NumberU64(), block.Header().Hash())
 	batch := bc.db.NewBatch()
 	rawdb.WriteBlock(batch, block)
 	if err := batch.Write(); err != nil {
