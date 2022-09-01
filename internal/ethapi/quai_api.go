@@ -537,7 +537,6 @@ func (s *PublicBlockChainQuaiAPI) ReceiveMinedHeader(ctx context.Context, raw js
 		return err
 	}
 
-	//
 	pendingBlockBody := s.b.PendingBlockBody(header.Root[types.QuaiNetworkContext])
 	fmt.Println("State Root: ", header.Root[types.QuaiNetworkContext])
 	if pendingBlockBody != nil {
@@ -558,6 +557,7 @@ func (s *PublicBlockChainQuaiAPI) ReceiveMinedHeader(ctx context.Context, raw js
 		block := types.NewBlockWithHeader(header).WithBody(txs, uncles)
 		block = block.WithSeal(header)
 		log.Info("Retrieved mined block", "number", header.Number, "location", header.Location)
+		fmt.Println("Retrieved mined block hash", block.Hash())
 		s.b.InsertBlock(ctx, block)
 		// Broadcast the block and announce chain insertion event
 		if block.Header() != nil {
