@@ -507,6 +507,7 @@ func (ec *Client) SendPendingHeader(ctx context.Context, pendingHeader types.Pen
 	data := map[string]interface{}{"Header": RPCMarshalHeader(pendingHeader.Header)}
 	data["Termini"] = pendingHeader.Termini
 	data["Td"] = pendingHeader.Td
+	data["PrevOrder"] = pendingHeader.PrevOrder
 
 	err := ec.c.CallContext(ctx, nil, "quai_receivePendingHeader", data)
 	if err != nil {

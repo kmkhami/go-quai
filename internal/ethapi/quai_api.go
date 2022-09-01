@@ -673,6 +673,7 @@ func (s *PublicBlockChainQuaiAPI) ReceivePendingHeader(ctx context.Context, raw 
 	if err := json.Unmarshal(raw, &pendingHeader); err != nil {
 		return err
 	}
+	fmt.Println("RECEIVED PENDING HEADER", pendingHeader.Header.ParentHash)
 	return s.b.ReceivePendingHeader(pendingHeader)
 }
 

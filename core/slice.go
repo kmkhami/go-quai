@@ -199,13 +199,15 @@ func (sl *Slice) Append(block *types.Block, domTerminus common.Hash, td *big.Int
 		return types.PendingHeader{}, err
 	}
 
-	pendingHeader := types.PendingHeader{Header: tempPendingHeader, Termini: localPendingHeader.Termini, Td: localPendingHeader.Td}
-
 	order, err := sl.engine.GetDifficultyOrder(block.Header())
 	if err != nil {
 		return types.PendingHeader{}, err
 	}
+
+	pendingHeader := types.PendingHeader{Header: tempPendingHeader, Termini: localPendingHeader.Termini, Td: localPendingHeader.Td, PrevOrder: order}
+
 	fmt.Println("BEFORE SEND", order, types.QuaiNetworkContext, pendingHeader.Header.Root)
+
 	if order == params.PRIME && types.QuaiNetworkContext == params.PRIME {
 		//save the pending header
 		rawdb.WritePendingHeader(sl.sliceDb, block.Hash(), tempPendingHeader)
@@ -230,6 +232,7 @@ func (sl *Slice) Append(block *types.Block, domTerminus common.Hash, td *big.Int
 	} else if order == params.ZONE && types.QuaiNetworkContext == params.ZONE {
 		fmt.Println("SendingPendingHeader", pendingHeader.Header)
 		fmt.Println("Termini", pendingHeader.Termini)
+		fmt.Println("PARENT HASH", pendingHeader.Header.ParentHash)
 		// pendingHeader.Header.Location = sl.config.Location
 		sl.domClient.SendPendingHeader(context.Background(), pendingHeader)
 	}
@@ -279,6 +282,7 @@ func (sl *Slice) PCRC(batch ethdb.Batch, header *types.Header, domTerminus commo
 	if termini == nil {
 		return common.Hash{}, consensus.ErrFutureBlock
 	}
+	fmt.Println("Got termini by hash for:", header.Parent())
 	fmt.Println("Dom Terminus: ", domTerminus)
 	fmt.Println("Termini: ", termini)
 
@@ -310,8 +314,10 @@ func (sl *Slice) PCRC(batch ethdb.Batch, header *types.Header, domTerminus commo
 
 	if parentOrder < types.QuaiNetworkContext || types.QuaiNetworkContext == params.PRIME { //GENESIS ESCAPE
 		newTermini[3] = header.Hash()
+		domTerminus = termini[3]
 	} else {
 		newTermini[3] = termini[3]
+		domTerminus = termini[3]
 	}
 
 	fmt.Println("header location: ", header.Location, newTermini, termini)
@@ -322,6 +328,8 @@ func (sl *Slice) PCRC(batch ethdb.Batch, header *types.Header, domTerminus commo
 	}
 
 	//Save the termini
+	fmt.Println("Writing termini for:", header.Hash())
+	fmt.Println("Termini to write:", newTermini)
 	rawdb.WriteTermini(sl.sliceDb, header.Hash(), newTermini)
 
 	fmt.Println("Termini before return", newTermini)
@@ -351,6 +359,8 @@ func (sl *Slice) CalcTd(header *types.Header) (*big.Int, error) {
 
 // writePendingHeader updates the slice pending header at the given index with the value from given header.
 func (sl *Slice) combinePendingHeader(header *types.Header, slPendingHeader *types.Header, index int) *types.Header {
+	fmt.Println(slPendingHeader.ParentHash)
+	fmt.Println(header.ParentHash)
 	slPendingHeader.ParentHash[index] = header.ParentHash[index]
 	slPendingHeader.UncleHash[index] = header.UncleHash[index]
 	slPendingHeader.Number[index] = header.Number[index]
@@ -437,13 +447,21 @@ func (sl *Slice) ReceivePendingHeader(slPendingHeader types.PendingHeader) error
 				latestPendingHeader := sl.GetBestPendingHeaderByLocation([]byte{byte(i), byte(j)})
 				if latestPendingHeader.Header != nil {
 					fmt.Println("I AND J", i, j)
+					fmt.Println("ORDER", slPendingHeader.PrevOrder)
+					fmt.Println("Prime slPendingHeader         :", slPendingHeader.Header.ParentHash)
 					fmt.Println("Prime slPendingHeader         :", slPendingHeader.Header.Location, slPendingHeader.Header.Number)
 					fmt.Println("Prime latestPendingHeader     :", latestPendingHeader.Header.Location, latestPendingHeader.Header.Number)
 
-					combinedHeader := sl.combinePendingHeader(slPendingHeader.Header, latestPendingHeader.Header, 0)
-					if byte(i) == latestPendingHeader.Header.Location[0] {
-						fmt.Println("Combining Prime for prior Region?")
-						combinedHeader = sl.combinePendingHeader(slPendingHeader.Header, combinedHeader, 1)
+					combinedHeader := latestPendingHeader.Header
+					if slPendingHeader.PrevOrder == params.PRIME {
+						combinedHeader = sl.combinePendingHeader(slPendingHeader.Header, combinedHeader, 0)
+					}
+
+					if slPendingHeader.PrevOrder <= params.REGION {
+						if byte(i) == latestPendingHeader.Header.Location[0] {
+							fmt.Println("Combining Prime for prior Region?")
+							combinedHeader = sl.combinePendingHeader(slPendingHeader.Header, combinedHeader, 1)
+						}
 					}
 
 					if bytes.Equal([]byte{byte(i), byte(j)}, slPendingHeader.Header.Location) {
