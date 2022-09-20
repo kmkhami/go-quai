@@ -17,6 +17,7 @@
 package rawdb
 
 import (
+	"fmt"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -174,7 +175,9 @@ func iterateTransactions(db ethdb.Database, from uint64, to uint64, reverse bool
 // signal received.
 func indexTransactions(db ethdb.Database, from uint64, to uint64, interrupt chan struct{}, hook func(uint64) bool) {
 	// short circuit for invalid range
+	fmt.Println("STARTING INDEX TRANSACTIONS")
 	if from >= to {
+		fmt.Println("from >= to", from, to)
 		return
 	}
 	var (
@@ -207,6 +210,7 @@ func indexTransactions(db ethdb.Database, from uint64, to uint64, interrupt chan
 			// Next block available, pop it off and index it
 			delivery := queue.PopItem().(*blockTxHashes)
 			lastNum = delivery.number
+			fmt.Println("indexTransactions", "lastNum", lastNum, delivery.number, delivery.hashes)
 			WriteTxLookupEntries(batch, delivery.number, delivery.hashes)
 			blocks++
 			txs += len(delivery.hashes)
