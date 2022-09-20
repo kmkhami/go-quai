@@ -143,6 +143,7 @@ func (hc *HeaderChain) SetCurrentHeader(head *types.Header) error {
 	newHeader := head
 	// write the head block hash to the db
 	rawdb.WriteHeadBlockHash(hc.headerDb, head.Hash())
+
 	hc.currentHeader.Store(head)
 	headHeaderGauge.Update(head.Number[types.QuaiNetworkContext].Int64())
 

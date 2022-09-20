@@ -1744,7 +1744,6 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 	if receipt.ContractAddress != (common.Address{}) {
 		fields["contractAddress"] = receipt.ContractAddress
 	}
-	fmt.Println("returning fields for receipt in api.go", fields)
 	return fields, nil
 }
 
