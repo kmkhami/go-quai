@@ -1686,13 +1686,16 @@ func (s *PublicTransactionPoolAPI) GetRawTransactionByHash(ctx context.Context, 
 func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
 	tx, blockHash, blockNumber, index, err := s.b.GetTransaction(ctx, hash)
 	if err != nil {
+		fmt.Println("GetTransactionReceipt err", err)
 		return nil, nil
 	}
 	receipts, err := s.b.GetReceipts(ctx, blockHash)
 	if err != nil {
+		fmt.Println("GetTransactionReceipt err", err)
 		return nil, err
 	}
 	if len(receipts) <= int(index) {
+		fmt.Println("GetTransactionReceipt len(receipts) <= int(index)", receipts, index)
 		return nil, nil
 	}
 	receipt := receipts[index]
@@ -1722,6 +1725,7 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 	} else {
 		header, err := s.b.HeaderByHash(ctx, blockHash)
 		if err != nil {
+			fmt.Println("GetTransactionReceipt err", err)
 			return nil, err
 		}
 		gasPrice := new(big.Int).Add(header.BaseFee[types.QuaiNetworkContext], tx.EffectiveGasTipValue(header.BaseFee[types.QuaiNetworkContext]))
@@ -1740,6 +1744,7 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 	if receipt.ContractAddress != (common.Address{}) {
 		fields["contractAddress"] = receipt.ContractAddress
 	}
+	fmt.Println("returning fields for receipt in api.go", fields)
 	return fields, nil
 }
 

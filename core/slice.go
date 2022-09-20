@@ -285,7 +285,9 @@ func (sl *Slice) ConstructLocalBlock(header *types.Header) *types.Block {
 func (sl *Slice) updateCacheAndRelay(pendingHeader types.PendingHeader, location []byte, order int, reorg bool) {
 	sl.phCachemu.Lock()
 	defer sl.phCachemu.Unlock()
-
+	if pendingHeader.Header == nil {
+		return
+	}
 	sl.updatePhCache(pendingHeader)
 	if order == params.PRIME && types.QuaiNetworkContext == params.PRIME {
 		sl.updatePhCacheFromDom(pendingHeader, 3, []int{params.REGION, params.ZONE}, reorg)

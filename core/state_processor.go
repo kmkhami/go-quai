@@ -185,6 +185,7 @@ func (p *StateProcessor) Process(block *types.Block) (types.Receipts, []*types.L
 
 	// Iterate over and process the individual transactions.
 	for i, tx := range block.Transactions() {
+		fmt.Println("Processing tx hash:", tx.Hash())
 		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number[types.QuaiNetworkContext]), header.BaseFee[types.QuaiNetworkContext])
 		if err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
@@ -279,6 +280,10 @@ func (p *StateProcessor) Apply(batch ethdb.Batch, block *types.Block) ([]*types.
 		return nil, err
 	}
 
+	fmt.Println("len of receipts to write", len(receipts))
+	for _, receipt := range receipts {
+		fmt.Println("receipt tx hash", receipt.TxHash)
+	}
 	rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receipts)
 	rawdb.WritePreimages(batch, statedb.Preimages())
 
@@ -350,6 +355,9 @@ func (p *StateProcessor) Apply(batch ethdb.Batch, block *types.Block) ([]*types.
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+
+	fmt.Println("tx hash in Apply", tx.Hash())
+
 	if header.BaseFee == nil {
 		return nil, errors.New("header BaseFee is nil")
 	}
@@ -414,12 +422,16 @@ func (p *StateProcessor) GetReceiptsByHash(hash common.Hash) types.Receipts {
 	if receipts, ok := p.receiptsCache.Get(hash); ok {
 		return receipts.(types.Receipts)
 	}
+	fmt.Println("finding header number for hash", hash)
 	number := rawdb.ReadHeaderNumber(p.hc.headerDb, hash)
 	if number == nil {
+		fmt.Println("header number nil")
 		return nil
 	}
+	fmt.Println("read receipts for", number)
 	receipts := rawdb.ReadReceipts(p.hc.headerDb, hash, *number, p.hc.config)
 	if receipts == nil {
+		fmt.Println("receipts nil")
 		return nil
 	}
 	p.receiptsCache.Add(hash, receipts)

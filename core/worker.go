@@ -674,6 +674,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 	if env.gasPool == nil {
 		env.gasPool = new(GasPool).AddGas(gasLimit[types.QuaiNetworkContext])
 	}
+	fmt.Println("env.gasPool", env.gasPool)
 	var coalescedLogs []*types.Log
 
 	for {
@@ -887,6 +888,7 @@ func (w *worker) fillTransactions(interrupt *int32, env *environment) {
 			localTxs[account] = txs
 		}
 	}
+	fmt.Println("fillTransactions: len local", len(localTxs), "len remote", len(remoteTxs))
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee[types.QuaiNetworkContext])
 		if w.commitTransactions(env, txs, interrupt) {

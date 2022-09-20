@@ -352,7 +352,7 @@ func WriteHeader(db ethdb.KeyValueWriter, header *types.Header) {
 	)
 	// Write the hash -> number mapping
 	WriteHeaderNumber(db, hash, number)
-
+	fmt.Println("WroteHeaderNumber", hash, number)
 	// Write the encoded header
 	data, err := rlp.EncodeToBytes(header)
 	if err != nil {
