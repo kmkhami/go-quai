@@ -123,11 +123,6 @@ func NewSlice(db ethdb.Database, config *Config, txConfig *TxPoolConfig, isLocal
 		Termini: make([]common.Hash, 3),
 	}
 
-	if txLookupLimit != nil {
-		sl.txLookupLimit = *txLookupLimit
-		go sl.maintainTxIndex(txIndexBlock)
-	}
-
 	go sl.updateFutureHeaders()
 	go sl.updatePendingHeadersCache()
 
@@ -163,6 +158,15 @@ func NewSlice(db ethdb.Database, config *Config, txConfig *TxPoolConfig, isLocal
 			return nil, err
 		}
 	}
+
+	// Initialize the chain with ancient data if it isn't empty.
+	var txIndexBlock uint64
+	fmt.Println("TxLookupLimit", txLookupLimit)
+	if txLookupLimit != nil {
+		sl.txLookupLimit = *txLookupLimit
+		go sl.maintainTxIndex(txIndexBlock)
+	}
+
 	return sl, nil
 }
 
@@ -657,11 +661,13 @@ func (sl *Slice) maintainTxIndex(ancients uint64) {
 	indexBlocks := func(tail *uint64, head uint64, done chan struct{}) {
 		defer func() { done <- struct{}{} }()
 
+		fmt.Println("tail", tail, "head", head)
 		// If the user just upgraded Geth to a new version which supports transaction
 		// index pruning, write the new tail and remove anything older.
 		if tail == nil {
 			if sl.txLookupLimit == 0 || head < sl.txLookupLimit {
 				// Nothing to delete, write the tail and return
+				fmt.Println("WriteTxIndexTail?")
 				rawdb.WriteTxIndexTail(sl.sliceDb, 0)
 			} else {
 				// Prune all stale tx indices and record the tx index tail
@@ -669,13 +675,16 @@ func (sl *Slice) maintainTxIndex(ancients uint64) {
 			}
 			return
 		}
+		fmt.Println("have tail", *tail)
 		// If a previous indexing existed, make sure that we fill in any missing entries
 		if sl.txLookupLimit == 0 || head < sl.txLookupLimit {
 			if *tail > 0 {
+				fmt.Println("txLookupLimit?", sl.txLookupLimit)
 				rawdb.IndexTransactions(sl.sliceDb, 0, *tail, sl.quit)
 			}
 			return
 		}
+		fmt.Println(head-sl.txLookupLimit+1, *tail)
 		// Update the transaction index to the new chain state
 		if head-sl.txLookupLimit+1 < *tail {
 			// Reindex a part of missing indices and rewind index tail to HEAD-limit
