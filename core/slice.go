@@ -56,6 +56,13 @@ type Slice struct {
 
 	pendingHeader common.Hash
 	phCache       map[common.Hash]types.PendingHeader
+
+	// txLookupLimit is the maximum number of blocks from head whose tx indices
+	// are reserved:
+	//  * 0:   means no limit and regenerate any missing indexes
+	//  * N:   means N block limit [HEAD-N+1, HEAD] and delete extra indexes
+	//  * nil: disable tx reindexer/deleter, but still index new blocks
+	txLookupLimit uint64
 }
 
 func NewSlice(db ethdb.Database, config *Config, txConfig *TxPoolConfig, isLocalBlock func(block *types.Header) bool, chainConfig *params.ChainConfig, domClientUrl string, subClientUrls []string, engine consensus.Engine, cacheConfig *CacheConfig, vmConfig vm.Config, genesis *Genesis) (*Slice, error) {
@@ -114,6 +121,11 @@ func NewSlice(db ethdb.Database, config *Config, txConfig *TxPoolConfig, isLocal
 	sl.nilPendingHeader = types.PendingHeader{
 		Header:  sl.nilHeader,
 		Termini: make([]common.Hash, 3),
+	}
+
+	if txLookupLimit != nil {
+		sl.txLookupLimit = *txLookupLimit
+		go sl.maintainTxIndex(txIndexBlock)
 	}
 
 	go sl.updateFutureHeaders()
@@ -614,6 +626,90 @@ func (sl *Slice) updatePendingHeadersCache() {
 		case <-futureTimer.C:
 			sl.gcPendingHeaders()
 		case <-sl.quit:
+			return
+		}
+	}
+}
+
+// maintainTxIndex is responsible for the construction and deletion of the
+// transaction index.
+//
+// User can use flag `txlookuplimit` to specify a "recentness" block, below
+// which ancient tx indices get deleted. If `txlookuplimit` is 0, it means
+// all tx indices will be reserved.
+//
+// The user can adjust the txlookuplimit value for each launch after fast
+// sync, Geth will automatically construct the missing indices and delete
+// the extra indices.
+func (sl *Slice) maintainTxIndex(ancients uint64) {
+	// Before starting the actual maintenance, we need to handle a special case,
+	// where user might init Geth with an external ancient database. If so, we
+	// need to reindex all necessary transactions before starting to process any
+	// pruning requests.
+	if ancients > 0 {
+		var from = uint64(0)
+		if sl.txLookupLimit != 0 && ancients > sl.txLookupLimit {
+			from = ancients - sl.txLookupLimit
+		}
+		rawdb.IndexTransactions(sl.sliceDb, from, ancients, sl.quit)
+	}
+	// indexBlocks reindexes or unindexes transactions depending on user configuration
+	indexBlocks := func(tail *uint64, head uint64, done chan struct{}) {
+		defer func() { done <- struct{}{} }()
+
+		// If the user just upgraded Geth to a new version which supports transaction
+		// index pruning, write the new tail and remove anything older.
+		if tail == nil {
+			if sl.txLookupLimit == 0 || head < sl.txLookupLimit {
+				// Nothing to delete, write the tail and return
+				rawdb.WriteTxIndexTail(sl.sliceDb, 0)
+			} else {
+				// Prune all stale tx indices and record the tx index tail
+				rawdb.UnindexTransactions(sl.sliceDb, 0, head-sl.txLookupLimit+1, sl.quit)
+			}
+			return
+		}
+		// If a previous indexing existed, make sure that we fill in any missing entries
+		if sl.txLookupLimit == 0 || head < sl.txLookupLimit {
+			if *tail > 0 {
+				rawdb.IndexTransactions(sl.sliceDb, 0, *tail, sl.quit)
+			}
+			return
+		}
+		// Update the transaction index to the new chain state
+		if head-sl.txLookupLimit+1 < *tail {
+			// Reindex a part of missing indices and rewind index tail to HEAD-limit
+			rawdb.IndexTransactions(sl.sliceDb, head-sl.txLookupLimit+1, *tail, sl.quit)
+		} else {
+			// Unindex a part of stale indices and forward index tail to HEAD-limit
+			rawdb.UnindexTransactions(sl.sliceDb, *tail, head-sl.txLookupLimit+1, sl.quit)
+		}
+	}
+	// Any reindexing done, start listening to chain events and moving the index window
+	var (
+		done   chan struct{}                  // Non-nil if background unindexing or reindexing routine is active.
+		headCh = make(chan ChainHeadEvent, 1) // Buffered to avoid locking up the event feed
+	)
+	sub := sl.hc.SubscribeChainHeadEvent(headCh)
+	if sub == nil {
+		return
+	}
+	defer sub.Unsubscribe()
+
+	for {
+		select {
+		case head := <-headCh:
+			if done == nil {
+				done = make(chan struct{})
+				go indexBlocks(rawdb.ReadTxIndexTail(sl.sliceDb), head.Block.NumberU64(), done)
+			}
+		case <-done:
+			done = nil
+		case <-sl.quit:
+			if done != nil {
+				log.Info("Waiting background transaction indexer to exit")
+				<-done
+			}
 			return
 		}
 	}
