@@ -163,6 +163,7 @@ func NewSlice(db ethdb.Database, config *Config, txConfig *TxPoolConfig, isLocal
 	var txIndexBlock uint64
 	fmt.Println("TxLookupLimit", txLookupLimit)
 	if txLookupLimit != nil {
+		fmt.Println("starting to maintain tx index", *txLookupLimit)
 		sl.txLookupLimit = *txLookupLimit
 		go sl.maintainTxIndex(txIndexBlock)
 	}
@@ -675,7 +676,7 @@ func (sl *Slice) maintainTxIndex(ancients uint64) {
 			}
 			return
 		}
-		fmt.Println("have tail", *tail)
+		fmt.Println("have tail", *tail, sl.txLookupLimit, head)
 		// If a previous indexing existed, make sure that we fill in any missing entries
 		if sl.txLookupLimit == 0 || head < sl.txLookupLimit {
 			if *tail > 0 {
