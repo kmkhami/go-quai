@@ -268,10 +268,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 
 		switch {
 		case err != nil:
-			if err != state.ErrInvalidContext {
+			if err != state.ErrInvalidScope {
 				return nil, err
 			}
-			pc++ // ErrInvalidContext is ignored and execution continues
+			pc++ // ErrInvalidScope is ignored and execution continues
 		case operation.reverts:
 			return res, ErrExecutionReverted
 		case operation.halts:

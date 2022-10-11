@@ -187,7 +187,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	p, isPrecompile := evm.precompile(addr)
 	exist, err := evm.StateDB.Exist(addr)
 	if err != nil {
-		return nil, 0, err // consume all gas
+		return nil, gas, err // consume all gas
 	}
 	if !exist {
 		if !isPrecompile && evm.chainRules.IsEIP158 && value.Sign() == 0 {
@@ -228,7 +228,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
 			codeHash, err := evm.StateDB.GetCodeHash(addrCopy)
 			if err != nil {
-				return nil, 0, err
+				return nil, gas, err
 			}
 			contract.SetCallCode(&addrCopy, codeHash, code)
 			ret, err = evm.interpreter.Run(contract, input, false)
@@ -240,7 +240,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	// when we're in homestead this also counts for code storage gas errors.
 	if err != nil {
 		evm.StateDB.RevertToSnapshot(snapshot)
-		if err != ErrExecutionReverted && err != state.ErrInvalidContext {
+		if err != ErrExecutionReverted && err != state.ErrInvalidScope {
 			gas = 0
 		}
 		// TODO: consider clearing up unused snapshots:
@@ -284,11 +284,11 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 		contract := NewContract(caller, AccountRef(caller.Address()), value, gas)
 		codeHash, err := evm.StateDB.GetCodeHash(addrCopy)
 		if err != nil {
-			return nil, 0, err
+			return nil, gas, err
 		}
 		code, err := evm.StateDB.GetCode(addrCopy)
 		if err != nil {
-			return nil, 0, err
+			return nil, gas, err
 		}
 		contract.SetCallCode(&addrCopy, codeHash, code)
 		ret, err = evm.interpreter.Run(contract, input, false)
@@ -296,7 +296,7 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 	}
 	if err != nil {
 		evm.StateDB.RevertToSnapshot(snapshot)
-		if err != ErrExecutionReverted && err != state.ErrInvalidContext {
+		if err != ErrExecutionReverted && err != state.ErrInvalidScope {
 			gas = 0
 		}
 	}
@@ -327,11 +327,11 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 		contract := NewContract(caller, AccountRef(caller.Address()), nil, gas).AsDelegate()
 		codeHash, err := evm.StateDB.GetCodeHash(addrCopy)
 		if err != nil {
-			return nil, 0, err
+			return nil, gas, err
 		}
 		code, err := evm.StateDB.GetCode(addrCopy)
 		if err != nil {
-			return nil, 0, err
+			return nil, gas, err
 		}
 		contract.SetCallCode(&addrCopy, codeHash, code)
 		ret, err = evm.interpreter.Run(contract, input, false)
@@ -339,7 +339,7 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 	}
 	if err != nil {
 		evm.StateDB.RevertToSnapshot(snapshot)
-		if err != ErrExecutionReverted && err != state.ErrInvalidContext {
+		if err != ErrExecutionReverted && err != state.ErrInvalidScope {
 			gas = 0
 		}
 	}
@@ -383,11 +383,11 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		contract := NewContract(caller, AccountRef(addrCopy), new(big.Int), gas)
 		codeHash, err := evm.StateDB.GetCodeHash(addrCopy)
 		if err != nil {
-			return nil, 0, err
+			return nil, gas, err
 		}
 		code, err := evm.StateDB.GetCode(addrCopy)
 		if err != nil {
-			return nil, 0, err
+			return nil, gas, err
 		}
 		contract.SetCallCode(&addrCopy, codeHash, code)
 		// When an error was returned by the EVM or when setting the creation code
@@ -398,7 +398,7 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 	}
 	if err != nil {
 		evm.StateDB.RevertToSnapshot(snapshot)
-		if err != ErrExecutionReverted && err != state.ErrInvalidContext {
+		if err != ErrExecutionReverted && err != state.ErrInvalidScope {
 			gas = 0
 		}
 	}
@@ -501,7 +501,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	// when we're in homestead this also counts for code storage gas errors.
 	if err != nil && (evm.chainRules.IsHomestead || err != ErrCodeStoreOutOfGas) {
 		evm.StateDB.RevertToSnapshot(snapshot)
-		if err != ErrExecutionReverted && err != state.ErrInvalidContext {
+		if err != ErrExecutionReverted && err != state.ErrInvalidScope {
 			contract.UseGas(contract.Gas)
 		}
 	}

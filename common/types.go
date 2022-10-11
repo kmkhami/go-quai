@@ -184,10 +184,6 @@ func (h Hash) Value() (driver.Value, error) {
 	return h[:], nil
 }
 
-func (a Address) IsInContext() bool {
-	return IsAddressInContext(a)
-}
-
 // UnprefixedHash allows marshaling a Hash without 0x prefix.
 type UnprefixedHash Hash
 
@@ -545,8 +541,4 @@ func (l Location) ContainsAddress(a Address) bool {
 	}
 	// Ranges are fully inclusive
 	return prefix >= prefixRange.lo && prefix <= prefixRange.hi
-}
-
-func IsAddressInContext(address Address) bool {
-	return address.IsInChainScope()
 }

@@ -157,7 +157,7 @@ func (b *BlockGen) AddUncheckedReceipt(receipt *types.Receipt) {
 func (b *BlockGen) TxNonce(addr common.Address) uint64 {
 	exist, err := b.statedb.Exist(addr)
 	if err != nil {
-		return 0 // could also panic here
+		panic(err.Error()) // could also panic here
 	}
 	if !exist {
 		panic("account does not exist")
@@ -239,7 +239,10 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		}
 		if b.engine != nil {
 			// Finalize and seal the block
-			block, _ := b.engine.FinalizeAndAssemble(chainreader, b.header, statedb, b.txs, b.uncles, b.etxs, b.subManifest, b.receipts)
+			block, err := b.engine.FinalizeAndAssemble(chainreader, b.header, statedb, b.txs, b.uncles, b.etxs, b.subManifest, b.receipts)
+			if err != nil {
+				panic(err.Error())
+			}
 
 			// Write state changes to db
 			root, err := statedb.Commit(config.IsEIP158(b.header.Number()))
@@ -283,7 +286,11 @@ func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.S
 
 	// Make new header
 	header := types.EmptyHeader()
-	header.SetRoot(state.IntermediateRoot(chain.Config().IsEIP158(parent.Number())))
+	intermediateRoot, err := state.IntermediateRoot(chain.Config().IsEIP158(parent.Number())) // error ignored because this is used for hardcoded testing only
+	if err != nil {
+		panic(err.Error())
+	}
+	header.SetRoot(intermediateRoot)
 	header.SetParentHash(parent.Hash())
 	header.SetCoinbase(parent.Coinbase())
 	header.SetDifficulty(engine.CalcDifficulty(chain, diffheader))

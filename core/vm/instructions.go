@@ -262,7 +262,7 @@ func opBalance(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 	slot := scope.Stack.peek()
 	address := common.Address(slot.Bytes20())
 	balance, err := interpreter.evm.StateDB.GetBalance(address)
-	if err != nil {
+	if err != nil { // if an ErrInvalidScope error is returned, the caller (usually interpreter.go/Run) will return the error to Call which will eventually set ReceiptStatusFailed in the tx receipt (state_processor.go/applyTransaction)
 		return nil, err
 	}
 	slot.SetFromBig(balance)
@@ -539,8 +539,9 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]by
 func opSstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byte, error) {
 	loc := scope.Stack.pop()
 	val := scope.Stack.pop()
-	interpreter.evm.StateDB.SetState(scope.Contract.Address(),
-		loc.Bytes32(), val.Bytes32())
+	if err := interpreter.evm.StateDB.SetState(scope.Contract.Address(), loc.Bytes32(), val.Bytes32()); err != nil {
+		return nil, err
+	}
 	return nil, nil
 }
 
@@ -673,7 +674,9 @@ func opCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]byt
 	toAddr := common.Address(addr.Bytes20())
 	// Get the arguments from the memory.
 	args := scope.Memory.GetPtr(int64(inOffset.Uint64()), int64(inSize.Uint64()))
-
+	if !toAddr.IsInChainScope() { // checked here because the error returned from Call is not returned from this function
+		return nil, state.ErrInvalidScope
+	}
 	var bigVal = big0
 	//TODO: use uint256.Int instead of converting with toBig()
 	// By using big0 here, we save an alloc for the most common case (non-ether-transferring contract calls),
@@ -709,8 +712,8 @@ func opCallCode(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([
 	addr, value, inOffset, inSize, retOffset, retSize := stack.pop(), stack.pop(), stack.pop(), stack.pop(), stack.pop(), stack.pop()
 	toAddr := common.Address(addr.Bytes20())
 	// Check if address is in proper context
-	if !common.IsAddressInContext(toAddr) { // checked here because the error returned from CallCode is not returned from this function
-		return nil, state.ErrInvalidContext
+	if !toAddr.IsInChainScope() { // checked here because the error returned from CallCode is not returned from this function
+		return nil, state.ErrInvalidScope
 	}
 	// Get arguments from the memory.
 	args := scope.Memory.GetPtr(int64(inOffset.Uint64()), int64(inSize.Uint64()))
@@ -747,8 +750,8 @@ func opDelegateCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext
 	addr, inOffset, inSize, retOffset, retSize := stack.pop(), stack.pop(), stack.pop(), stack.pop(), stack.pop()
 	toAddr := common.Address(addr.Bytes20())
 	// Check if address is in proper context
-	if !common.IsAddressInContext(toAddr) {
-		return nil, state.ErrInvalidContext
+	if !toAddr.IsInChainScope() {
+		return nil, state.ErrInvalidScope
 	}
 	// Get arguments from the memory.
 	args := scope.Memory.GetPtr(int64(inOffset.Uint64()), int64(inSize.Uint64()))
@@ -778,8 +781,8 @@ func opStaticCall(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) 
 	addr, inOffset, inSize, retOffset, retSize := stack.pop(), stack.pop(), stack.pop(), stack.pop(), stack.pop()
 	toAddr := common.Address(addr.Bytes20())
 	// Check if address is in proper context
-	if !common.IsAddressInContext(toAddr) {
-		return nil, state.ErrInvalidContext
+	if !toAddr.IsInChainScope() {
+		return nil, state.ErrInvalidScope
 	}
 	// Get arguments from the memory.
 	args := scope.Memory.GetPtr(int64(inOffset.Uint64()), int64(inSize.Uint64()))
@@ -823,8 +826,12 @@ func opSuicide(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]
 	if err != nil {
 		return nil, err
 	}
-	interpreter.evm.StateDB.AddBalance(beneficiary.Bytes20(), balance)
-	interpreter.evm.StateDB.Suicide(scope.Contract.Address())
+	if err := interpreter.evm.StateDB.AddBalance(beneficiary.Bytes20(), balance); err != nil {
+		return nil, err
+	}
+	if _, err := interpreter.evm.StateDB.Suicide(scope.Contract.Address()); err != nil {
+		return nil, err
+	}
 	return nil, nil
 }
 
