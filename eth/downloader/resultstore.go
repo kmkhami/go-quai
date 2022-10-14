@@ -43,13 +43,15 @@ type resultStore struct {
 	throttleThreshold uint64
 
 	lock sync.RWMutex
+	core Core
 }
 
-func newResultStore(size int) *resultStore {
+func newResultStore(size int, core Core) *resultStore {
 	return &resultStore{
 		resultOffset:      0,
 		items:             make([]*fetchResult, size),
 		throttleThreshold: uint64(size),
+		core:              core,
 	}
 }
 
@@ -71,10 +73,11 @@ func (r *resultStore) SetThrottleThreshold(threshold uint64) uint64 {
 // wants to reserve headers for fetching.
 //
 // It returns the following:
-//   stale     - if true, this item is already passed, and should not be requested again
-//   throttled - if true, the store is at capacity, this particular header is not prio now
-//   item      - the result to store data into
-//   err       - any error that occurred
+//
+//	stale     - if true, this item is already passed, and should not be requested again
+//	throttled - if true, the store is at capacity, this particular header is not prio now
+//	item      - the result to store data into
+//	err       - any error that occurred
 func (r *resultStore) AddFetch(header *types.Header) (stale, throttled bool, item *fetchResult, err error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -168,14 +171,20 @@ func (r *resultStore) GetCompleted(limit int) []*fetchResult {
 	if limit > completed {
 		limit = completed
 	}
-	results := make([]*fetchResult, limit)
-	copy(results, r.items[:limit])
 
-	// Delete the results from the cache and clear the tail.
-	copy(r.items, r.items[limit:])
-	for i := len(r.items) - limit; i < len(r.items); i++ {
-		r.items[i] = nil
+	results := make([]*fetchResult, limit)
+	for i := 0; i < limit; i++ {
+		if !r.core.Engine().HasCoincidentDifficulty(r.items[i].Header) {
+			results[i] = r.items[i]
+			r.items[i] = nil
+		} else {
+			limit = i
+			// Delete the results from the cache and clear the tail.
+			copy(r.items, r.items[limit:])
+			break
+		}
 	}
+
 	// Advance the expected block number of the first cache entry
 	r.resultOffset += uint64(limit)
 	atomic.AddInt32(&r.indexIncomplete, int32(-limit))

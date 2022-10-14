@@ -137,10 +137,11 @@ type queue struct {
 	closed bool
 
 	lastStatLog time.Time
+	core        Core
 }
 
 // newQueue creates a new download queue for scheduling block retrieval.
-func newQueue(blockCacheLimit int, thresholdInitialSize int) *queue {
+func newQueue(blockCacheLimit int, thresholdInitialSize int, core Core) *queue {
 	lock := new(sync.RWMutex)
 	q := &queue{
 		headerContCh:     make(chan bool),
@@ -148,6 +149,7 @@ func newQueue(blockCacheLimit int, thresholdInitialSize int) *queue {
 		receiptTaskQueue: prque.New(nil),
 		active:           sync.NewCond(lock),
 		lock:             lock,
+		core:             core,
 	}
 	q.Reset(blockCacheLimit, thresholdInitialSize)
 	return q
@@ -172,7 +174,7 @@ func (q *queue) Reset(blockCacheLimit int, thresholdInitialSize int) {
 	q.receiptTaskQueue.Reset()
 	q.receiptPendPool = make(map[string]*fetchRequest)
 
-	q.resultCache = newResultStore(blockCacheLimit)
+	q.resultCache = newResultStore(blockCacheLimit, q.core)
 	q.resultCache.SetThrottleThreshold(uint64(thresholdInitialSize))
 }
 
@@ -261,14 +263,17 @@ func (q *queue) ScheduleSkeleton(from uint64, skeleton []*types.Header) {
 	q.headerTaskPool = make(map[uint64]*types.Header)
 	q.headerTaskQueue = prque.New(nil)
 	q.headerPeerMiss = make(map[string]map[uint64]struct{}) // Reset availability to correct invalid chains
-	q.headerResults = make([]*types.Header, len(skeleton)*MaxHeaderFetch)
+	if len(skeleton) > 0 {
+		q.headerResults = make([]*types.Header, skeleton[0].NumberU64()-skeleton[len(skeleton)-1].NumberU64())
+	} else {
+		q.headerResults = make([]*types.Header, 0)
+	}
 	q.headerProced = 0
 	q.headerOffset = from
 	q.headerContCh = make(chan bool, 1)
 
 	for i, header := range skeleton {
-		index := from + uint64(i*MaxHeaderFetch)
-
+		index := skeleton[i].NumberU64()
 		q.headerTaskPool[index] = header
 		q.headerTaskQueue.Push(index, -int64(index))
 	}
@@ -294,7 +299,8 @@ func (q *queue) Schedule(headers []*types.Header, from uint64) []*types.Header {
 
 	// Insert all the headers prioritised by the contained block number
 	inserts := make([]*types.Header, 0, len(headers))
-	for _, header := range headers {
+	for i := len(headers) - 1; i >= 0; i-- {
+		header := headers[i]
 		// Make sure chain order is honoured and preserved throughout
 		hash := header.Hash()
 		if header.Number() == nil || header.Number().Uint64() != from {
@@ -316,7 +322,7 @@ func (q *queue) Schedule(headers []*types.Header, from uint64) []*types.Header {
 		}
 		inserts = append(inserts, header)
 		q.headerHead = hash
-		from++
+		from--
 	}
 	return inserts
 }
@@ -407,10 +413,22 @@ func (q *queue) ReserveHeaders(p *peerConnection, count int) *fetchRequest {
 	if _, ok := q.headerPendPool[p.id]; ok {
 		return nil
 	}
+
+	// remember to guard
+	start, _ := q.headerTaskQueue.Pop()
 	// Retrieve a batch of hashes, skipping previously failed ones
 	send, skip := uint64(0), []uint64{}
 	for send == 0 && !q.headerTaskQueue.Empty() {
+
+		// * Shouldn’t ask if the parent is the next entry in the skeleton
+		// * When we ask, ask for from = skeleton - 1, and Dom = false in the request
 		from, _ := q.headerTaskQueue.Pop()
+
+		if from.(uint64) <= start.(uint64)+1 {
+			start = from
+			continue
+		}
+
 		if q.headerPeerMiss[p.id] != nil {
 			if _, ok := q.headerPeerMiss[p.id][from.(uint64)]; ok {
 				skip = append(skip, from.(uint64))
@@ -429,7 +447,7 @@ func (q *queue) ReserveHeaders(p *peerConnection, count int) *fetchRequest {
 	}
 	request := &fetchRequest{
 		Peer: p,
-		From: send,
+		From: send - 1,
 		Time: time.Now(),
 	}
 	q.headerPendPool[p.id] = request
@@ -465,9 +483,10 @@ func (q *queue) ReserveReceipts(p *peerConnection, count int) (*fetchRequest, bo
 // to access the queue, so they already need a lock anyway.
 //
 // Returns:
-//   item     - the fetchRequest
-//   progress - whether any progress was made
-//   throttle - if the caller should throttle for a while
+//
+//	item     - the fetchRequest
+//	progress - whether any progress was made
+//	throttle - if the caller should throttle for a while
 func (q *queue) reserveHeaders(p *peerConnection, count int, taskPool map[common.Hash]*types.Header, taskQueue *prque.Prque,
 	pendPool map[string]*fetchRequest, kind uint) (*fetchRequest, bool, bool) {
 	// Short circuit if the pool has been depleted, or if the peer's already
